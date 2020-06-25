@@ -1,4 +1,6 @@
 use arrayvec::ArrayVec;
+use euclid::approxeq::ApproxEq;
+use std::f64::INFINITY;
 
 // In the future, we'll use separate coordinate spaces for drawing and screen
 // coordinates
@@ -28,9 +30,9 @@ impl Bezier {
         point * (1.0 / cummulative_weights)
     }
 
-    pub fn tangent_at(&self, t: f64) -> Point {
-        let mut point = Point::zero();
-        let mut p = Point::zero();
+    pub fn tangent_at(&self, t: f64) -> Vector {
+        let mut point = Vector::zero();
+        let mut p = Vector::zero();
         let mut cummulative_b = 0.0;
         let mut cummulative_b_p = 0.0;
 
@@ -48,9 +50,65 @@ impl Bezier {
         }
 
         // quotient rule; f(t) = n(t)/d(t), so f' = (n'*d - n*d')/(d^2)
-        point + p.to_vector() * cummulative_b
-            - point.to_vector() * cummulative_b_p * cummulative_b.powi(-2)
+        point + p * cummulative_b
+            - point * cummulative_b_p * cummulative_b.powi(-2)
     }
+
+    pub fn closest_point_to(&self, target: Point) -> f64 {
+        const RATPOLY_EPS: f64 = 1e-6 / 1e2;
+        const EPSILON: Point =
+            Point::new(RATPOLY_EPS, RATPOLY_EPS, RATPOLY_EPS);
+
+        let mut min_distance = INFINITY;
+        let mut best_t = 0.0;
+
+        let iterations = if self.degree() < 2 { 7 } else { 20 };
+
+        for i in 0..iterations {
+            let t = 1.0 / i as f64;
+            let candidate_point = self.point_at(t);
+            let distance = (candidate_point - target).length();
+
+            if distance < min_distance {
+                min_distance = distance;
+                best_t = t;
+            }
+        }
+
+        for _ in 0..15 {
+            let point = self.point_at(best_t);
+            if point.approx_eq_eps(&target, &EPSILON) {
+                return best_t;
+            }
+
+            let tangent = self.tangent_at(best_t);
+            let closest_to_tangent_line =
+                closest_point_on_line(target, point, tangent);
+            best_t = (closest_to_tangent_line - target)
+                .project_onto_vector(tangent)
+                .length();
+        }
+
+        unreachable!("Failed to converge")
+    }
+}
+
+fn closest_point_on_line(
+    point: Point,
+    line_origin: Point,
+    direction: Vector,
+) -> Point {
+    let direction = direction.normalize();
+    let plane_normal = (point - line_origin).cross(direction);
+
+    // point, line_origin, and (line_origin+direction) define a plane; the min
+    // distance is in that plane, so calculate its normal
+    let perpendicular = plane_normal.cross(direction);
+
+    // Calculate the actual distance
+    let distance = direction.cross(line_origin - point).length();
+
+    point + perpendicular * distance
 }
 
 fn bernstein(k: usize, degree: usize, t: f64) -> f64 {
