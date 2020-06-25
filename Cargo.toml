@@ -1,0 +1,9 @@
+[package]
+name = "constraints"
+version = "0.1.0"
+authors = ["Michael-F-Bryan <michaelfbryan@gmail.com>"]
+license = "MIT OR Apache-2.0"
+edition = "2018"
+description = "An experiment in writing algebraic constraint solvers for 3D CAD."
+publish = false
+readme = "README.md"
