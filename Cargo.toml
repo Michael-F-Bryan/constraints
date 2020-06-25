@@ -7,3 +7,7 @@ edition = "2018"
 description = "An experiment in writing algebraic constraint solvers for 3D CAD."
 publish = false
 readme = "README.md"
+
+[dependencies]
+euclid = "0.20.13"
+arrayvec = "0.5.1"
