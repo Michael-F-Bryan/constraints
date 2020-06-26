@@ -209,6 +209,40 @@ pub fn substitute(
     }
 }
 
+/// Iterate over all [`Parameter`]s in an [`Expression`].
+pub fn iter_params(expr: &Expression) -> impl Iterator<Item = &Parameter> + '_ {
+    Params {
+        to_visit: vec![expr],
+    }
+}
+
+/// A breadth-first iterator over the [`Parameter`]s in an [`Expression`].
+#[derive(Debug)]
+struct Params<'expr> {
+    to_visit: Vec<&'expr Expression>,
+}
+
+impl<'expr> Iterator for Params<'expr> {
+    type Item = &'expr Parameter;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.to_visit.pop()? {
+                Expression::Parameter(p) => return Some(p),
+                Expression::Constant(_) => {},
+                Expression::Binary { left, right, .. } => {
+                    self.to_visit.push(right);
+                    self.to_visit.push(left);
+                },
+                Expression::Negate(inner) => self.to_visit.push(inner),
+                Expression::FunctionCall { argument, .. } => {
+                    self.to_visit.push(argument)
+                },
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +334,17 @@ mod tests {
 
             assert_eq!(got, should_be, "{} != {}", got, should_be);
         }
+    }
+
+    #[test]
+    fn iterate_over_parameters_in_an_expression() {
+        let expr: Expression = "x + sin(5*y / -z) - x".parse().unwrap();
+        let x = Parameter::named("x");
+        let y = Parameter::named("y");
+        let z = Parameter::named("z");
+
+        let got: Vec<_> = iter_params(&expr).collect();
+
+        assert_eq!(got, &[&x, &y, &z, &x]);
     }
 }
