@@ -26,6 +26,53 @@ pub enum Expression {
     },
 }
 
+impl Expression {
+    /// Iterate over all [`Parameter`]s in an [`Expression`].
+    pub fn params(&self) -> impl Iterator<Item = &Parameter> + '_ {
+        Params {
+            to_visit: vec![self],
+        }
+    }
+
+    pub fn depends_on(&self, param: &Parameter) -> bool {
+        self.params().any(|p| p == param)
+    }
+
+    pub fn is_constant(&self) -> bool {
+        match self {
+            Expression::Constant(_) => true,
+            _ => false,
+        }
+    }
+}
+
+/// A breadth-first iterator over the [`Parameter`]s in an [`Expression`].
+#[derive(Debug)]
+struct Params<'expr> {
+    to_visit: Vec<&'expr Expression>,
+}
+
+impl<'expr> Iterator for Params<'expr> {
+    type Item = &'expr Parameter;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.to_visit.pop()? {
+                Expression::Parameter(p) => return Some(p),
+                Expression::Constant(_) => {},
+                Expression::Binary { left, right, .. } => {
+                    self.to_visit.push(right);
+                    self.to_visit.push(left);
+                },
+                Expression::Negate(inner) => self.to_visit.push(inner),
+                Expression::FunctionCall { argument, .. } => {
+                    self.to_visit.push(argument)
+                },
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Parameter {
     Named(SmolStr),
@@ -299,5 +346,17 @@ mod tests {
             let got = expr.to_string();
             assert_eq!(got, should_be);
         }
+    }
+
+    #[test]
+    fn iterate_over_parameters_in_an_expression() {
+        let expr: Expression = "x + sin(5*y / -z) - x".parse().unwrap();
+        let x = Parameter::named("x");
+        let y = Parameter::named("y");
+        let z = Parameter::named("z");
+
+        let got: Vec<_> = expr.params().collect();
+
+        assert_eq!(got, &[&x, &y, &z, &x]);
     }
 }

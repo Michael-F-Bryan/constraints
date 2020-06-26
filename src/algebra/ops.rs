@@ -88,6 +88,16 @@ where
     // If our operands contain constants, we can use arithmetic's identity laws
     // to simplify things
     match (left, right, op) {
+        (
+            Expression::Parameter(p_left),
+            Expression::Parameter(p_right),
+            BinaryOperation::Plus,
+        ) if p_left == p_right => Expression::Binary {
+            left: Box::new(Expression::Constant(2.0)),
+            right: Box::new(Expression::Parameter(p_right.clone())),
+            op: BinaryOperation::Times,
+        },
+
         // x + 0 = x
         (Expression::Constant(l), right, BinaryOperation::Plus)
             if l.approx_eq(&0.0) =>
@@ -152,6 +162,50 @@ where
             left
         },
 
+        // (x * y) * z
+        (
+            Expression::Constant(constant_a),
+            Expression::Binary {
+                left,
+                right,
+                op: BinaryOperation::Times,
+            },
+            BinaryOperation::Times,
+        ) if left.is_constant() || right.is_constant() => {
+            let (constant_b, expr) = match (&*left, &*right) {
+                (Expression::Constant(left), right) => (left, right),
+                (left, Expression::Constant(right)) => (right, left),
+                _ => unreachable!(),
+            };
+
+            Expression::Binary {
+                left: Box::new(Expression::Constant(constant_a * constant_b)),
+                right: Box::new(Expression::clone(expr)),
+                op: BinaryOperation::Times,
+            }
+        },
+        (
+            Expression::Binary {
+                left,
+                right,
+                op: BinaryOperation::Times,
+            },
+            Expression::Constant(constant_a),
+            BinaryOperation::Times,
+        ) if left.is_constant() || right.is_constant() => {
+            let (constant_b, expr) = match (&*left, &*right) {
+                (Expression::Constant(left), right) => (left, right),
+                (left, Expression::Constant(right)) => (right, left),
+                _ => unreachable!(),
+            };
+
+            Expression::Binary {
+                left: Box::new(Expression::Constant(constant_a * constant_b)),
+                right: Box::new(Expression::clone(expr)),
+                op: BinaryOperation::Times,
+            }
+        },
+
         // Evaluate in-place
         (Expression::Constant(l), Expression::Constant(r), op) => {
             let value = match op {
@@ -209,37 +263,44 @@ pub fn substitute(
     }
 }
 
-/// Iterate over all [`Parameter`]s in an [`Expression`].
-pub fn iter_params(expr: &Expression) -> impl Iterator<Item = &Parameter> + '_ {
-    Params {
-        to_visit: vec![expr],
-    }
-}
-
-/// A breadth-first iterator over the [`Parameter`]s in an [`Expression`].
-#[derive(Debug)]
-struct Params<'expr> {
-    to_visit: Vec<&'expr Expression>,
-}
-
-impl<'expr> Iterator for Params<'expr> {
-    type Item = &'expr Parameter;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.to_visit.pop()? {
-                Expression::Parameter(p) => return Some(p),
-                Expression::Constant(_) => {},
-                Expression::Binary { left, right, .. } => {
-                    self.to_visit.push(right);
-                    self.to_visit.push(left);
-                },
-                Expression::Negate(inner) => self.to_visit.push(inner),
-                Expression::FunctionCall { argument, .. } => {
-                    self.to_visit.push(argument)
-                },
+/// Calculate an [`Expression`]'s partial derivative with respect to a
+/// particular [`Parameter`].
+pub fn partial_derivative<C>(
+    expr: &Expression,
+    param: &Parameter,
+    ctx: &C,
+) -> Expression
+where
+    C: Context,
+{
+    match expr {
+        Expression::Parameter(p) => {
+            if p == param {
+                Expression::Constant(1.0)
+            } else {
+                Expression::Constant(0.0)
             }
-        }
+        },
+        Expression::Constant(_) => Expression::Constant(0.0),
+        Expression::Binary {
+            left,
+            right,
+            op: BinaryOperation::Plus,
+        } => {
+            partial_derivative(left, param, ctx)
+                + partial_derivative(right, param, ctx)
+        },
+        Expression::Binary {
+            left,
+            right,
+            op: BinaryOperation::Times,
+        } => {
+            let d_left = partial_derivative(left, param, ctx);
+            let d_right = partial_derivative(right, param, ctx);
+            d_left * Expression::clone(right)
+                + d_right * Expression::clone(left)
+        },
+        _ => unimplemented!(),
     }
 }
 
@@ -291,6 +352,7 @@ mod tests {
             ("unknown_function(3)", "unknown_function(3)"),
             ("x + 5", "x + 5"),
             ("x + 5*2", "x + 10"),
+            ("x + x", "2*x"),
             ("0 + x", "x"),
             ("x + 0", "x"),
             ("1 * x", "x"),
@@ -299,6 +361,7 @@ mod tests {
             ("0 - x", "-x"),
             ("x / 1", "x"),
             ("--x", "x"),
+            ("(x + x)*3 + 5", "6*x + 5"),
         ];
         let ctx = Builtins::default();
 
@@ -337,14 +400,20 @@ mod tests {
     }
 
     #[test]
-    fn iterate_over_parameters_in_an_expression() {
-        let expr: Expression = "x + sin(5*y / -z) - x".parse().unwrap();
+    fn differentiate_wrt_x() {
         let x = Parameter::named("x");
-        let y = Parameter::named("y");
-        let z = Parameter::named("z");
+        let inputs =
+            vec![("x", "1"), ("1", "0"), ("3*x*x + 5*x + 2", "6*x + 5")];
+        let ctx = Builtins::default();
 
-        let got: Vec<_> = iter_params(&expr).collect();
+        for (src, should_be) in inputs {
+            let original: Expression = src.parse().unwrap();
+            let should_be: Expression = should_be.parse().unwrap();
 
-        assert_eq!(got, &[&x, &y, &z, &x]);
+            let got = partial_derivative(&original, &x, &ctx);
+            let got = fold_constants(&got, &ctx);
+
+            assert_eq!(got, should_be, "{} != {}", got, should_be);
+        }
     }
 }
