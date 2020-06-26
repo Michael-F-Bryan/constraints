@@ -2,6 +2,7 @@
 
 use crate::algebra::{BinaryOperation, Expression, Parameter};
 use euclid::approxeq::ApproxEq;
+use smol_str::SmolStr;
 
 /// Contextual information used when evaluating an [`Expression`].
 pub trait Context {
@@ -10,11 +11,19 @@ pub trait Context {
         name: &str,
         argument: f64,
     ) -> Result<f64, EvaluationError>;
+
+    /// For some [`Parameter`], `x`, and function, `f`, get `f'(x)`.
+    fn differentiate_function(
+        &self,
+        name: &str,
+        param: &Parameter,
+    ) -> Result<Expression, EvaluationError>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EvaluationError {
-    UnknownFunction,
+    UnknownFunction { name: SmolStr },
+    UnableToDifferentiate { name: SmolStr },
 }
 
 /// The set of builtin functions.
@@ -35,7 +44,34 @@ impl Context for Builtins {
             "acos" => Ok(argument.acos().to_degrees()),
             "atan" => Ok(argument.atan().to_degrees()),
             "sqrt" => Ok(argument.sqrt()),
-            _ => Err(EvaluationError::UnknownFunction),
+            _ => Err(EvaluationError::UnknownFunction { name: name.into() }),
+        }
+    }
+
+    fn differentiate_function(
+        &self,
+        name: &str,
+        param: &Parameter,
+    ) -> Result<Expression, EvaluationError> {
+        match name {
+            "sin" => Ok(Expression::FunctionCall {
+                function: "cos".into(),
+                argument: Box::new(Expression::Parameter(param.clone())),
+            }),
+            "cos" => Ok(-Expression::FunctionCall {
+                function: "sin".into(),
+                argument: Box::new(Expression::Parameter(param.clone())),
+            }),
+            "sqrt" => {
+                let sqrt_x = Expression::FunctionCall {
+                    function: "sqrt".into(),
+                    argument: Box::new(Expression::Parameter(param.clone())),
+                };
+                Ok(Expression::Constant(0.5) / sqrt_x)
+            },
+            _ => Err(EvaluationError::UnableToDifferentiate {
+                name: name.into(),
+            }),
         }
     }
 }
@@ -92,11 +128,19 @@ where
             Expression::Parameter(p_left),
             Expression::Parameter(p_right),
             BinaryOperation::Plus,
-        ) if p_left == p_right => Expression::Binary {
-            left: Box::new(Expression::Constant(2.0)),
-            right: Box::new(Expression::Parameter(p_right.clone())),
-            op: BinaryOperation::Times,
+        ) if p_left == p_right => {
+            Expression::Constant(2.0) * Expression::Parameter(p_right.clone())
         },
+        (
+            Expression::Parameter(p_left),
+            Expression::Parameter(p_right),
+            BinaryOperation::Minus,
+        ) if p_left == p_right => Expression::Constant(0.0),
+        (
+            Expression::Parameter(p_left),
+            Expression::Parameter(p_right),
+            BinaryOperation::Divide,
+        ) if p_left == p_right => Expression::Constant(1.0),
 
         // x + 0 = x
         (Expression::Constant(l), right, BinaryOperation::Plus)
@@ -152,7 +196,7 @@ where
         (Expression::Constant(l), right, BinaryOperation::Minus)
             if l.approx_eq(&0.0) =>
         {
-            Expression::Negate(Box::new(right))
+            -right
         },
 
         // x - 0 = x
@@ -177,12 +221,8 @@ where
                 (left, Expression::Constant(right)) => (right, left),
                 _ => unreachable!(),
             };
-
-            Expression::Binary {
-                left: Box::new(Expression::Constant(constant_a * constant_b)),
-                right: Box::new(Expression::clone(expr)),
-                op: BinaryOperation::Times,
-            }
+            Expression::Constant(constant_a * constant_b)
+                * Expression::clone(expr)
         },
         (
             Expression::Binary {
@@ -198,12 +238,8 @@ where
                 (left, Expression::Constant(right)) => (right, left),
                 _ => unreachable!(),
             };
-
-            Expression::Binary {
-                left: Box::new(Expression::Constant(constant_a * constant_b)),
-                right: Box::new(Expression::clone(expr)),
-                op: BinaryOperation::Times,
-            }
+            Expression::Constant(constant_a * constant_b)
+                * Expression::clone(expr)
         },
 
         // Evaluate in-place
@@ -251,9 +287,7 @@ pub fn substitute(
                 op: *op,
             }
         },
-        Expression::Negate(inner) => {
-            Expression::Negate(Box::new(substitute(inner, param, value)))
-        },
+        Expression::Negate(inner) => -substitute(inner, param, value),
         Expression::FunctionCall { function, argument } => {
             Expression::FunctionCall {
                 function: function.clone(),
@@ -269,11 +303,11 @@ pub fn partial_derivative<C>(
     expr: &Expression,
     param: &Parameter,
     ctx: &C,
-) -> Expression
+) -> Result<Expression, EvaluationError>
 where
     C: Context,
 {
-    match expr {
+    let got = match expr {
         Expression::Parameter(p) => {
             if p == param {
                 Expression::Constant(1.0)
@@ -287,21 +321,56 @@ where
             right,
             op: BinaryOperation::Plus,
         } => {
-            partial_derivative(left, param, ctx)
-                + partial_derivative(right, param, ctx)
+            partial_derivative(left, param, ctx)?
+                + partial_derivative(right, param, ctx)?
+        },
+        Expression::Binary {
+            left,
+            right,
+            op: BinaryOperation::Minus,
+        } => {
+            partial_derivative(left, param, ctx)?
+                - partial_derivative(right, param, ctx)?
         },
         Expression::Binary {
             left,
             right,
             op: BinaryOperation::Times,
         } => {
-            let d_left = partial_derivative(left, param, ctx);
-            let d_right = partial_derivative(right, param, ctx);
-            d_left * Expression::clone(right)
-                + d_right * Expression::clone(left)
+            // The product rule
+            let d_left = partial_derivative(left, param, ctx)?;
+            let d_right = partial_derivative(right, param, ctx)?;
+            let left = Expression::clone(left);
+            let right = Expression::clone(right);
+
+            d_left * right + d_right * left
         },
-        _ => unimplemented!(),
-    }
+        Expression::Binary {
+            left,
+            right,
+            op: BinaryOperation::Divide,
+        } => {
+            // The quotient rule
+            let d_left = partial_derivative(left, param, ctx)?;
+            let d_right = partial_derivative(right, param, ctx)?;
+            let right = Expression::clone(right);
+            let left = Expression::clone(left);
+
+            (d_left * right.clone() + left * d_right) / (right.clone() * right)
+        },
+
+        Expression::Negate(inner) => -partial_derivative(inner, param, ctx)?,
+        Expression::FunctionCall { function, argument } => {
+            // implement the chain rule: (f o g)' = (f' o g) * g'
+            let g = Parameter::named("__temp__");
+            let f_dash_of_g = ctx.differentiate_function(function, &g)?;
+            let g_dash = partial_derivative(argument, param, ctx)?;
+
+            substitute(&f_dash_of_g, &g, argument) * g_dash
+        },
+    };
+
+    Ok(got)
 }
 
 #[cfg(test)]
@@ -323,6 +392,8 @@ mod tests {
             ("sqrt(2 + sqrt(4))", (2.0 + 4_f64.sqrt()).sqrt()),
             ("-(1 + 2)", -(1.0 + 2.0)),
             ("0 * x", 0.0),
+            ("x - x", 0.0),
+            ("x/x", 1.0),
         ];
         let ctx = Builtins::default();
 
@@ -402,15 +473,23 @@ mod tests {
     #[test]
     fn differentiate_wrt_x() {
         let x = Parameter::named("x");
-        let inputs =
-            vec![("x", "1"), ("1", "0"), ("3*x*x + 5*x + 2", "6*x + 5")];
+        let inputs = vec![
+            ("x", "1"),
+            ("1", "0"),
+            ("x*x", "2 * x"),
+            ("3*x*x + 5*x + 2", "6*x + 5"),
+            ("sin(x)", "cos(x)"),
+            ("cos(x)", "-sin(x)"),
+            ("sqrt(x)", "0.5 / sqrt(x)"),
+            ("x/y", "y/y*y"), // = 1/y, simplification just isn't smart enough
+        ];
         let ctx = Builtins::default();
 
         for (src, should_be) in inputs {
             let original: Expression = src.parse().unwrap();
             let should_be: Expression = should_be.parse().unwrap();
 
-            let got = partial_derivative(&original, &x, &ctx);
+            let got = partial_derivative(&original, &x, &ctx).unwrap();
             let got = fold_constants(&got, &ctx);
 
             assert_eq!(got, should_be, "{} != {}", got, should_be);
