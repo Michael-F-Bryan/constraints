@@ -1,4 +1,4 @@
-use crate::algebra::parse::{ParseError, Parser};
+use crate::algebra::parse::ParseError;
 use smol_str::SmolStr;
 use std::{
     fmt::{self, Display, Formatter},
@@ -21,8 +21,8 @@ pub enum Expression {
     Negate(Box<Expression>),
     /// Invoke a builtin function.
     FunctionCall {
-        function: Builtin,
-        operand: Box<Expression>,
+        function: SmolStr,
+        argument: Box<Expression>,
     },
 }
 
@@ -39,30 +39,6 @@ pub enum BinaryOperation {
     Minus,
     Times,
     Divide,
-}
-
-/// Various builtin functions.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Builtin {
-    Sqrt,
-    Square,
-    Sine,
-    Cosine,
-    ArcSine,
-    ArcCosine,
-}
-
-impl Display for Builtin {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Builtin::Sqrt => write!(f, "sqrt"),
-            Builtin::Square => write!(f, "square"),
-            Builtin::Sine => write!(f, "sin"),
-            Builtin::Cosine => write!(f, "cos"),
-            Builtin::ArcSine => write!(f, "asin"),
-            Builtin::ArcCosine => write!(f, "acos"),
-        }
-    }
 }
 
 // define some operator overloads to make constructing an expression easier.
@@ -124,7 +100,7 @@ impl Neg for Expression {
 impl FromStr for Expression {
     type Err = ParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> { Parser::new(s).parse() }
+    fn from_str(s: &str) -> Result<Self, Self::Err> { crate::algebra::parse(s) }
 }
 
 impl Display for Expression {
@@ -162,8 +138,8 @@ impl Display for Expression {
                 )?;
                 Ok(())
             },
-            Expression::FunctionCall { function, operand } => {
-                write!(f, "{}({})", function, operand)
+            Expression::FunctionCall { function, argument } => {
+                write!(f, "{}({})", function, argument)
             },
         }
     }
@@ -220,8 +196,8 @@ mod tests {
             (Expression::Constant(3.0), "3"),
             (
                 Expression::FunctionCall {
-                    function: Builtin::Sine,
-                    operand: Box::new(Expression::Constant(5.0)),
+                    function: "sin".into(),
+                    argument: Box::new(Expression::Constant(5.0)),
                 },
                 "sin(5)",
             ),
@@ -231,8 +207,8 @@ mod tests {
             ),
             (
                 Expression::Negate(Box::new(Expression::FunctionCall {
-                    function: Builtin::Sine,
-                    operand: Box::new(Expression::Constant(5.0)),
+                    function: "sin".into(),
+                    argument: Box::new(Expression::Constant(5.0)),
                 })),
                 "-sin(5)",
             ),

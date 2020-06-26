@@ -3,5 +3,5 @@
 mod expr;
 mod parse;
 
-pub use expr::{BinaryOperation, Builtin, Expression, Parameter};
-pub use parse::{ParseError, TokenKind};
+pub use expr::{BinaryOperation, Expression, Parameter};
+pub use parse::{parse, ParseError, TokenKind};

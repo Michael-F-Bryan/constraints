@@ -1,6 +1,11 @@
 use crate::algebra::{BinaryOperation, Expression, Parameter};
 use std::{iter::Peekable, ops::Range};
 
+/// Parse an [`Expression`] tree from some text.
+pub fn parse(s: &str) -> Result<Expression, ParseError> {
+    Parser::new(s).parse()
+}
+
 /// A simple recursive descent parser (`LL(1)`) for converting a string into an
 /// expression tree.
 ///
@@ -55,7 +60,10 @@ impl<'a> Parser<'a> {
     }
 
     fn advance(&mut self) -> Result<Token<'a>, ParseError> {
-        self.tokens.next().expect("There should be a token here...")
+        match self.tokens.next() {
+            Some(result) => result,
+            None => Err(ParseError::UnexpectedEndOfInput),
+        }
     }
 
     fn expression(&mut self) -> Result<Expression, ParseError> {
@@ -168,9 +176,27 @@ impl<'a> Parser<'a> {
 
     fn function_call(
         &mut self,
-        _identifier: Token<'a>,
+        identifier: Token<'a>,
     ) -> Result<Expression, ParseError> {
-        unimplemented!()
+        let open_paren = self.advance()?;
+        debug_assert_eq!(open_paren.kind, TokenKind::OpenParen);
+
+        let argument = self.expression()?;
+
+        let Token { kind, span, .. } = self.advance()?;
+
+        if kind == TokenKind::CloseParen {
+            Ok(Expression::FunctionCall {
+                function: identifier.text.into(),
+                argument: Box::new(argument),
+            })
+        } else {
+            Err(ParseError::UnexpectedToken {
+                found: kind,
+                span,
+                expected: &[TokenKind::CloseParen],
+            })
+        }
     }
 
     fn number(&mut self) -> Result<Expression, ParseError> {
@@ -409,6 +435,7 @@ mod tokenizer_tests {
     tokenize_test!(divide, "/", TokenKind::Divide);
     tokenize_test!(single_digit_integer, "3", TokenKind::Number);
     tokenize_test!(multi_digit_integer, "31", TokenKind::Number);
+    tokenize_test!(number_with_trailing_dot, "31.", TokenKind::Number);
     tokenize_test!(simple_decimal, "3.14", TokenKind::Number);
     tokenize_test!(simple_identifier, "x", TokenKind::Identifier);
     tokenize_test!(longer_identifier, "hello", TokenKind::Identifier);
@@ -457,4 +484,11 @@ mod parser_tests {
     parser_test!(negative_one_plus_one, "-1 + 1");
     parser_test!(negative_one_plus_x, "-1 + x");
     parser_test!(number_in_parens, "(1)", "1");
+    parser_test!(bimdas, "1*2 + 3*4/(5 - 2)*1 - 3");
+    parser_test!(function_call, "sin(1)", "sin(1)");
+    parser_test!(function_call_with_expression, "sin(1/0)");
+    parser_test!(
+        function_calls_function_calls_function_with_variable,
+        "foo(bar(baz(pi)))"
+    );
 }

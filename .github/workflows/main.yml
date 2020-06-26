@@ -59,5 +59,5 @@ jobs:
         with:
           build_dir: target/doc
         env:
-          GITHUB_PAT: ${{ secrets.GH_PAGES_ACCESS_TOKEN  }}
+          GH_PAT: ${{ secrets.GH_PAGES_ACCESS_TOKEN  }}
 
