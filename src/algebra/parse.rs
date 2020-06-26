@@ -132,9 +132,9 @@ impl<'a> Parser<'a> {
                 return self.variable_or_function_call()
             },
             Some(TokenKind::OpenParen) => {
-                let _ = dbg!(self.advance()?);
-                let expr = dbg!(self.expression()?);
-                let close_paren = dbg!(self.advance()?);
+                let _ = self.advance()?;
+                let expr = self.expression()?;
+                let close_paren = self.advance()?;
 
                 if close_paren.kind == TokenKind::CloseParen {
                     return Ok(expr);

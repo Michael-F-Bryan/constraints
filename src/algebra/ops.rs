@@ -1,6 +1,7 @@
 //! [`Expression`] operations.
 
 use crate::algebra::{BinaryOperation, Expression};
+use euclid::approxeq::ApproxEq;
 
 /// The set of builtin functions.
 #[derive(Debug, Default)]
@@ -41,28 +42,14 @@ where
 {
     match expr {
         Expression::Binary { left, right, op } => {
-            let left = fold_constants(left, ctx);
-            let right = fold_constants(right, ctx);
-
-            match (left, right) {
-                (Expression::Constant(l), Expression::Constant(r)) => {
-                    let value = match op {
-                        BinaryOperation::Plus => l + r,
-                        BinaryOperation::Minus => l - r,
-                        BinaryOperation::Times => l * r,
-                        BinaryOperation::Divide => l / r,
-                    };
-
-                    Expression::Constant(value)
-                },
-                (left, right) => Expression::Binary {
-                    left: Box::new(left),
-                    right: Box::new(right),
-                    op: *op,
-                },
-            }
+            fold_binary_op(left, right, *op, ctx)
         },
-        Expression::Negate(_) => unimplemented!(),
+        Expression::Negate(expr) => match fold_constants(expr, ctx) {
+            Expression::Constant(value) => Expression::Constant(-value),
+            // double negative
+            Expression::Negate(inner) => *inner,
+            other => Expression::Negate(Box::new(other)),
+        },
         Expression::FunctionCall { function, argument } => {
             let argument = fold_constants(argument, ctx);
 
@@ -81,6 +68,106 @@ where
     }
 }
 
+fn fold_binary_op<C>(
+    left: &Expression,
+    right: &Expression,
+    op: BinaryOperation,
+    ctx: &C,
+) -> Expression
+where
+    C: Context,
+{
+    let left = fold_constants(left, ctx);
+    let right = fold_constants(right, ctx);
+
+    // If our operands contain constants, we can use arithmetic's identity laws
+    // to simplify things
+    match (left, right, op) {
+        // x + 0 = x
+        (Expression::Constant(l), right, BinaryOperation::Plus)
+            if l.approx_eq(&0.0) =>
+        {
+            right
+        },
+        (left, Expression::Constant(r), BinaryOperation::Plus)
+            if r.approx_eq(&0.0) =>
+        {
+            left
+        },
+
+        // 0 * x = 0
+        (Expression::Constant(l), _, BinaryOperation::Times)
+            if l.approx_eq(&0.0) =>
+        {
+            Expression::Constant(0.0)
+        },
+        (_, Expression::Constant(r), BinaryOperation::Times)
+            if r.approx_eq(&0.0) =>
+        {
+            Expression::Constant(0.0)
+        },
+
+        // 1 * x = x
+        (Expression::Constant(l), right, BinaryOperation::Times)
+            if l.approx_eq(&1.0) =>
+        {
+            right
+        },
+        (left, Expression::Constant(r), BinaryOperation::Times)
+            if r.approx_eq(&1.0) =>
+        {
+            left
+        },
+
+        // 0 / x = 0
+        (Expression::Constant(l), _, BinaryOperation::Divide)
+            if l.approx_eq(&0.0) =>
+        {
+            Expression::Constant(0.0)
+        },
+
+        // x / 1 = x
+        (left, Expression::Constant(r), BinaryOperation::Divide)
+            if r.approx_eq(&1.0) =>
+        {
+            left
+        },
+
+        // 0 - x = -x
+        (Expression::Constant(l), right, BinaryOperation::Minus)
+            if l.approx_eq(&0.0) =>
+        {
+            Expression::Negate(Box::new(right))
+        },
+
+        // x - 0 = x
+        (left, Expression::Constant(r), BinaryOperation::Minus)
+            if r.approx_eq(&0.0) =>
+        {
+            left
+        },
+
+        // Evaluate in-place
+        (Expression::Constant(l), Expression::Constant(r), op) => {
+            let value = match op {
+                BinaryOperation::Plus => l + r,
+                BinaryOperation::Minus => l - r,
+                BinaryOperation::Times => l * r,
+                BinaryOperation::Divide => l / r,
+            };
+
+            Expression::Constant(value)
+        },
+
+        // Oh well, we tried
+        (left, right, op) => Expression::Binary {
+            left: Box::new(left),
+            right: Box::new(right),
+            op,
+        },
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum EvaluationError {
     UnknownFunction,
@@ -95,10 +182,14 @@ mod tests {
         let inputs = vec![
             ("1", 1.0),
             ("1 + 1.5", 1.0 + 1.5),
+            ("1 - 1.5", 1.0 - 1.5),
             ("2 * 3", 2.0 * 3.0),
-            ("sqrt(4)", 2.0),
-            ("sqrt(2 + 2)", 2.0),
-            ("sqrt(2 + sqrt(4))", 2.0),
+            ("4 / 2", 4.0 / 2.0),
+            ("sqrt(4)", 4_f64.sqrt()),
+            ("sqrt(2 + 2)", (2_f64 + 2.0).sqrt()),
+            ("sqrt(2 + sqrt(4))", (2.0 + 4_f64.sqrt()).sqrt()),
+            ("-(1 + 2)", -(1.0 + 2.0)),
+            ("0 * x", 0.0),
         ];
         let ctx = Builtins::default();
 
@@ -124,9 +215,18 @@ mod tests {
     fn constant_folding_leaves_unknowns_unevaluated() {
         let inputs = vec![
             ("x", "x"),
+            ("-(2 * 3 + x)", "-(6 + x)"),
             ("unknown_function(3)", "unknown_function(3)"),
             ("x + 5", "x + 5"),
             ("x + 5*2", "x + 10"),
+            ("0 + x", "x"),
+            ("x + 0", "x"),
+            ("1 * x", "x"),
+            ("x * 1", "x"),
+            ("x - 0", "x"),
+            ("0 - x", "-x"),
+            ("x / 1", "x"),
+            ("--x", "x"),
         ];
         let ctx = Builtins::default();
 
@@ -135,7 +235,9 @@ mod tests {
 
             let got = fold_constants(&expr, &ctx);
 
-            assert_eq!(got.to_string(), should_be);
+            let should_be: Expression = should_be.parse().unwrap();
+
+            assert_eq!(got, should_be, "{} != {}", got, should_be);
         }
     }
 }
