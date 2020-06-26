@@ -26,10 +26,19 @@ pub enum Expression {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Parameter {
     Named(SmolStr),
     Anonymous { number: usize },
+}
+
+impl Parameter {
+    pub fn named<S>(name: S) -> Self
+    where
+        S: Into<String> + AsRef<str>,
+    {
+        Parameter::Named(SmolStr::from(name))
+    }
 }
 
 /// An operation that can be applied to two arguments.

@@ -1,7 +1,21 @@
 //! [`Expression`] operations.
 
-use crate::algebra::{BinaryOperation, Expression};
+use crate::algebra::{BinaryOperation, Expression, Parameter};
 use euclid::approxeq::ApproxEq;
+
+/// Contextual information used when evaluating an [`Expression`].
+pub trait Context {
+    fn evaluate_function(
+        &self,
+        name: &str,
+        argument: f64,
+    ) -> Result<f64, EvaluationError>;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EvaluationError {
+    UnknownFunction,
+}
 
 /// The set of builtin functions.
 #[derive(Debug, Default)]
@@ -14,25 +28,16 @@ impl Context for Builtins {
         argument: f64,
     ) -> Result<f64, EvaluationError> {
         match name {
-            "sin" => Ok(argument.sin()),
-            "cos" => Ok(argument.cos()),
-            "tan" => Ok(argument.tan()),
-            "asin" => Ok(argument.asin()),
-            "acos" => Ok(argument.acos()),
-            "atan" => Ok(argument.atan()),
+            "sin" => Ok(argument.to_radians().sin()),
+            "cos" => Ok(argument.to_radians().cos()),
+            "tan" => Ok(argument.to_radians().tan()),
+            "asin" => Ok(argument.asin().to_degrees()),
+            "acos" => Ok(argument.acos().to_degrees()),
+            "atan" => Ok(argument.atan().to_degrees()),
             "sqrt" => Ok(argument.sqrt()),
             _ => Err(EvaluationError::UnknownFunction),
         }
     }
-}
-
-/// Contextual information used when evaluating an [`Expression`].
-pub trait Context {
-    fn evaluate_function(
-        &self,
-        name: &str,
-        argument: f64,
-    ) -> Result<f64, EvaluationError>;
 }
 
 /// Simplify an expression by evaluating all constant operations.
@@ -168,9 +173,40 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum EvaluationError {
-    UnknownFunction,
+/// Replace all references to a [`Parameter`] with an [`Expression`].
+pub fn substitute(
+    expression: &Expression,
+    param: &Parameter,
+    value: &Expression,
+) -> Expression {
+    match expression {
+        Expression::Parameter(p) => {
+            if p == param {
+                value.clone()
+            } else {
+                Expression::Parameter(p.clone())
+            }
+        },
+        Expression::Constant(value) => Expression::Constant(*value),
+        Expression::Binary { left, right, op } => {
+            let left = substitute(left, param, value);
+            let right = substitute(right, param, value);
+            Expression::Binary {
+                left: Box::new(left),
+                right: Box::new(right),
+                op: *op,
+            }
+        },
+        Expression::Negate(inner) => {
+            Expression::Negate(Box::new(substitute(inner, param, value)))
+        },
+        Expression::FunctionCall { function, argument } => {
+            Expression::FunctionCall {
+                function: function.clone(),
+                argument: Box::new(substitute(argument, param, value)),
+            }
+        },
+    }
 }
 
 #[cfg(test)]
@@ -187,6 +223,8 @@ mod tests {
             ("4 / 2", 4.0 / 2.0),
             ("sqrt(4)", 4_f64.sqrt()),
             ("sqrt(2 + 2)", (2_f64 + 2.0).sqrt()),
+            ("sin(90)", 90_f64.to_radians().sin()),
+            ("atan(1)", 45.0),
             ("sqrt(2 + sqrt(4))", (2.0 + 4_f64.sqrt()).sqrt()),
             ("-(1 + 2)", -(1.0 + 2.0)),
             ("0 * x", 0.0),
@@ -236,6 +274,29 @@ mod tests {
             let got = fold_constants(&expr, &ctx);
 
             let should_be: Expression = should_be.parse().unwrap();
+
+            assert_eq!(got, should_be, "{} != {}", got, should_be);
+        }
+    }
+
+    #[test]
+    fn basic_substitutions() {
+        let parameter = Parameter::named("x");
+        let inputs = vec![
+            ("1 + 2", "3", "1 + 2"),
+            ("x", "5", "5"),
+            ("y", "5", "y"),
+            ("x + 5", "5", " 5 + 5"),
+            ("-x", "5", "-5"),
+            ("sin(x)", "y + y", "sin(y + y)"),
+        ];
+
+        for (src, new_value, should_be) in inputs {
+            let original: Expression = src.parse().unwrap();
+            let new_value: Expression = new_value.parse().unwrap();
+            let should_be: Expression = should_be.parse().unwrap();
+
+            let got = substitute(&original, &parameter, &new_value);
 
             assert_eq!(got, should_be, "{} != {}", got, should_be);
         }

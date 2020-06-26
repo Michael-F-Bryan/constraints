@@ -170,7 +170,7 @@ impl<'a> Parser<'a> {
         if self.peek() == Some(TokenKind::OpenParen) {
             self.function_call(ident)
         } else {
-            Ok(Expression::Parameter(Parameter::Named(ident.text.into())))
+            Ok(Expression::Parameter(Parameter::named(ident.text)))
         }
     }
 
