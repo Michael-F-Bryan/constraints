@@ -1,7 +1,9 @@
-#![allow(dead_code)]
+use crate::algebra::parse::{ParseError, Parser};
+use smol_str::SmolStr;
 use std::{
     fmt::{self, Display, Formatter},
     ops::{Add, Div, Mul, Neg, Sub},
+    str::FromStr,
 };
 
 /// An expression.
@@ -24,20 +26,11 @@ pub enum Expression {
     },
 }
 
-impl Expression {
-    fn is_compound(&self) -> bool {
-        match self {
-            Expression::Parameter(_)
-            | Expression::Constant(_)
-            | Expression::FunctionCall { .. } => false,
-            Expression::Negate(inner) => inner.is_compound(),
-            Expression::Binary { .. } => true,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
-pub struct Parameter {}
+pub enum Parameter {
+    Named(SmolStr),
+    Anonymous { number: usize },
+}
 
 /// An operation that can be applied to two arguments.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -128,29 +121,45 @@ impl Neg for Expression {
     fn neg(self) -> Self::Output { Expression::Negate(Box::new(self)) }
 }
 
+impl FromStr for Expression {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> { Parser::new(s).parse() }
+}
+
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Expression::Parameter(_) => unimplemented!(),
+            Expression::Parameter(Parameter::Named(name)) => {
+                write!(f, "{}", name)
+            },
+            Expression::Parameter(Parameter::Anonymous { number }) => {
+                write!(f, "${}", number)
+            },
             Expression::Constant(value) => write!(f, "{}", value),
             Expression::Binary { left, right, op } => {
-                write_compound(left, f)?;
+                write_with_precedence(op.precedence(), left, f)?;
 
-                let op = match op {
+                let middle = match op {
                     BinaryOperation::Plus => " + ",
                     BinaryOperation::Minus => " - ",
                     BinaryOperation::Times => "*",
                     BinaryOperation::Divide => "/",
                 };
-                write!(f, "{}", op)?;
+                write!(f, "{}", middle)?;
 
-                write_compound(right, f)?;
+                write_with_precedence(op.precedence(), right, f)?;
 
                 Ok(())
             },
             Expression::Negate(inner) => {
                 write!(f, "-")?;
-                write_compound(inner, f)?;
+
+                write_with_precedence(
+                    BinaryOperation::Times.precedence(),
+                    inner,
+                    f,
+                )?;
                 Ok(())
             },
             Expression::FunctionCall { function, operand } => {
@@ -160,8 +169,41 @@ impl Display for Expression {
     }
 }
 
-fn write_compound(expr: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
-    if expr.is_compound() {
+impl Expression {
+    fn precedence(&self) -> Precedence {
+        match self {
+            Expression::Parameter(_)
+            | Expression::Constant(_)
+            | Expression::FunctionCall { .. } => Precedence::Bi,
+            Expression::Negate(_) => Precedence::Md,
+            Expression::Binary { op, .. } => op.precedence(),
+        }
+    }
+}
+
+impl BinaryOperation {
+    fn precedence(self) -> Precedence {
+        match self {
+            BinaryOperation::Plus | BinaryOperation::Minus => Precedence::As,
+            BinaryOperation::Times | BinaryOperation::Divide => Precedence::Md,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+enum Precedence {
+    Bi,
+    Md,
+    As,
+}
+
+fn write_with_precedence(
+    current_precedence: Precedence,
+    expr: &Expression,
+    f: &mut Formatter<'_>,
+) -> fmt::Result {
+    if expr.precedence() > current_precedence {
+        // we need parentheses to maintain ordering
         write!(f, "({})", expr)
     } else {
         write!(f, "{}", expr)
@@ -227,6 +269,22 @@ mod tests {
                 "1/1",
             ),
             (
+                Expression::Negate(Box::new(Expression::Binary {
+                    left: Box::new(Expression::Constant(1.0)),
+                    right: Box::new(Expression::Constant(1.0)),
+                    op: BinaryOperation::Plus,
+                })),
+                "-(1 + 1)",
+            ),
+            (
+                Expression::Negate(Box::new(Expression::Binary {
+                    left: Box::new(Expression::Constant(1.0)),
+                    right: Box::new(Expression::Constant(1.0)),
+                    op: BinaryOperation::Times,
+                })),
+                "-1*1",
+            ),
+            (
                 Expression::Binary {
                     left: Box::new(Expression::Binary {
                         left: Box::new(Expression::Constant(1.0)),
@@ -237,6 +295,18 @@ mod tests {
                     op: BinaryOperation::Divide,
                 },
                 "(1 + 2)/3",
+            ),
+            (
+                Expression::Binary {
+                    left: Box::new(Expression::Constant(3.0)),
+                    right: Box::new(Expression::Binary {
+                        left: Box::new(Expression::Constant(1.0)),
+                        right: Box::new(Expression::Constant(2.0)),
+                        op: BinaryOperation::Times,
+                    }),
+                    op: BinaryOperation::Minus,
+                },
+                "3 - 1*2",
             ),
         ];
 

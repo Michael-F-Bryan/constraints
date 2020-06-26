@@ -11,3 +11,4 @@ readme = "README.md"
 [dependencies]
 euclid = "0.20.13"
 arrayvec = "0.5.1"
+smol_str = "0.1.15"
