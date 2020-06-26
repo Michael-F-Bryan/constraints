@@ -11,8 +11,8 @@ jobs:
         rust:
           - nightly
           - stable
-          # MSRV - needs 2018 edition
-          - 1.34.0
+          # MSRV - needed for MaybeUninit in ArrayVec
+          - 1.36.0
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
