@@ -37,11 +37,19 @@ pub enum Expression {
 }
 
 impl Expression {
-    /// Iterate over all [`Parameter`]s in an [`Expression`].
-    pub fn params(&self) -> impl Iterator<Item = &Parameter> + '_ {
-        Params {
+    /// Iterate over all [`Expression`]s in this [`Expression`] tree.
+    pub fn iter(&self) -> impl Iterator<Item = &Expression> + '_ {
+        Iter {
             to_visit: vec![self],
         }
+    }
+
+    /// Iterate over all [`Parameter`]s mentioned in this [`Expression`].
+    pub fn params(&self) -> impl Iterator<Item = &Parameter> + '_ {
+        self.iter().filter_map(|expr| match expr {
+            Expression::Parameter(p) => Some(p),
+            _ => None,
+        })
     }
 
     /// Does this [`Expression`] involve a particular [`Parameter`]?
@@ -58,30 +66,31 @@ impl Expression {
     }
 }
 
-/// A breadth-first iterator over the [`Parameter`]s in an [`Expression`].
+/// An iterator over the [`Parameter`]s in an [`Expression`].
 #[derive(Debug)]
-struct Params<'expr> {
+struct Iter<'expr> {
     to_visit: Vec<&'expr Expression>,
 }
 
-impl<'expr> Iterator for Params<'expr> {
-    type Item = &'expr Parameter;
+impl<'expr> Iterator for Iter<'expr> {
+    type Item = &'expr Expression;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.to_visit.pop()? {
-                Expression::Parameter(p) => return Some(p),
-                Expression::Constant(_) => {},
-                Expression::Binary { left, right, .. } => {
-                    self.to_visit.push(right);
-                    self.to_visit.push(left);
-                },
-                Expression::Negate(inner) => self.to_visit.push(inner),
-                Expression::FunctionCall { argument, .. } => {
-                    self.to_visit.push(argument)
-                },
-            }
+        let next_item = self.to_visit.pop()?;
+
+        match next_item {
+            Expression::Binary { left, right, .. } => {
+                self.to_visit.push(right);
+                self.to_visit.push(left);
+            },
+            Expression::Negate(inner) => self.to_visit.push(inner),
+            Expression::FunctionCall { argument, .. } => {
+                self.to_visit.push(argument)
+            },
+            _ => {},
         }
+
+        Some(next_item)
     }
 }
 
