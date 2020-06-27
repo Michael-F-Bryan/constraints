@@ -11,8 +11,8 @@ jobs:
         rust:
           - nightly
           - stable
-          # MSRV - needed for MaybeUninit in ArrayVec
-          - 1.36.0
+          # MSRV - We probably only need 1.39.0 for bind-by-move
+          - 1.44.1
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
