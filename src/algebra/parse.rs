@@ -213,9 +213,13 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Possible errors that may occur while parsing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
-    InvalidCharacter(char),
+    InvalidCharacter {
+        character: char,
+        index: usize,
+    },
     UnexpectedEndOfInput,
     UnexpectedToken {
         found: TokenKind,
@@ -350,7 +354,10 @@ impl<'a> Iterator for Tokens<'a> {
                     Some(Ok(self.chomp_identifier()))
                 },
                 '0'..='9' => Some(Ok(self.chomp_number())),
-                other => Some(Err(ParseError::InvalidCharacter(other))),
+                other => Some(Err(ParseError::InvalidCharacter {
+                    character: other,
+                    index: self.cursor,
+                })),
             };
         }
     }
@@ -377,6 +384,7 @@ impl<'a> Token<'a> {
     }
 }
 
+/// The kinds of token that can appear in an [`Expression`]'s text form.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenKind {
     Identifier,

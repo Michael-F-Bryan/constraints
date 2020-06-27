@@ -1,3 +1,5 @@
+//! 3D curves and surfaces.
+
 use arrayvec::ArrayVec;
 use euclid::approxeq::ApproxEq;
 use std::f64::INFINITY;

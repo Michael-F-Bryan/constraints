@@ -6,13 +6,15 @@ use smol_str::SmolStr;
 
 /// Contextual information used when evaluating an [`Expression`].
 pub trait Context {
+    /// Evaluate a function by name.
     fn evaluate_function(
         &self,
         name: &str,
         argument: f64,
     ) -> Result<f64, EvaluationError>;
 
-    /// For some [`Parameter`], `x`, and function, `f`, get `f'(x)`.
+    /// For some [`Parameter`], `x`, and a function called `name`, get
+    /// `name'(x)`.
     fn differentiate_function(
         &self,
         name: &str,
@@ -20,10 +22,19 @@ pub trait Context {
     ) -> Result<Expression, EvaluationError>;
 }
 
+/// Errors that may occur while evaulating an [`Expression`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum EvaluationError {
-    UnknownFunction { name: SmolStr },
-    UnableToDifferentiate { name: SmolStr },
+    /// We don't know this function.
+    UnknownFunction {
+        /// The function's name.
+        name: SmolStr,
+    },
+    /// The [`Context`] is unable to differentiate the function.
+    UnableToDifferentiate {
+        /// The function that we tried to differentiate.
+        name: SmolStr,
+    },
 }
 
 /// The set of builtin functions.
