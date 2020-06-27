@@ -6,6 +6,9 @@ use std::{
     str::FromStr,
 };
 
+// PERF: Switch from Box<Expression> to Arc<Expression> and use Arc::make_mut()
+// to get efficient copy-on-write semantics
+
 /// An expression.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
