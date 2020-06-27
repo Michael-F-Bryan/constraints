@@ -114,6 +114,15 @@ impl Parameter {
     }
 }
 
+impl Display for Parameter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Parameter::Named(name) => write!(f, "{}", name),
+            Parameter::Anonymous { number } => write!(f, "${}", number),
+        }
+    }
+}
+
 /// An operation that can be applied to two arguments.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BinaryOperation {
@@ -188,12 +197,7 @@ impl FromStr for Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Expression::Parameter(Parameter::Named(name)) => {
-                write!(f, "{}", name)
-            },
-            Expression::Parameter(Parameter::Anonymous { number }) => {
-                write!(f, "${}", number)
-            },
+            Expression::Parameter(p) => write!(f, "{}", p),
             Expression::Constant(value) => write!(f, "{}", value),
             Expression::Binary { left, right, op } => {
                 write_with_precedence(op.precedence(), left, f)?;

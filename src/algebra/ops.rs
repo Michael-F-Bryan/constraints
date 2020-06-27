@@ -35,11 +35,17 @@ pub enum EvaluationError {
         /// The function that we tried to differentiate.
         name: SmolStr,
     },
+    /// The [`Expression`] contains a [`Parameter`] which hasn't yet been
+    /// evaluated.
+    ///
+    /// Consider using [`substitute()`] to replace the [`Parameter`] with its
+    /// value (i.e. a [`Expression::Constant`]).
+    UnevaluatedParameter(Parameter),
 }
 
 /// The set of builtin functions.
 #[derive(Debug, Default)]
-struct Builtins;
+pub struct Builtins;
 
 impl Context for Builtins {
     fn evaluate_function(
@@ -382,6 +388,10 @@ where
     };
 
     Ok(got)
+}
+
+pub fn evaluate<C>(expr: &Expression, ctx: &C) -> Result<f64, EvaluationError> {
+    unimplemented!()
 }
 
 #[cfg(test)]
