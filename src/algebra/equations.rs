@@ -4,7 +4,7 @@ use crate::algebra::{
     Expression, Parameter, ParseError,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     iter::{Extend, FromIterator},
     str::FromStr,
@@ -30,15 +30,14 @@ impl FromStr for Equation {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (left, right) = match s.find("=") {
+        match s.find("=") {
             Some(index) => {
                 let (left, right) = s.split_at(index);
-                (left, &right[1..])
+                let right = &right[1..];
+                Ok(Equation::new(left.parse()?, right.parse()?))
             },
-            None => todo!(),
-        };
-
-        Ok(Equation::new(left.parse()?, right.parse()?))
+            None => Ok(Equation { body: s.parse()? }),
+        }
     }
 }
 
@@ -73,10 +72,29 @@ impl SystemOfEquations {
     where
         C: Context,
     {
-        let jacobian = Jacobian::create(&self.equations, ctx)?;
+        let jacobian = self.jacobian(ctx)?;
         let got = solve_with_newtons_method(&jacobian, ctx)?;
 
-        Ok(Solution { known_values: got })
+        Ok(Solution {
+            known_values: jacobian.unknowns.into_iter().zip(got).collect(),
+        })
+    }
+
+    pub fn unknowns(&self) -> usize {
+        let params: HashSet<_> = self
+            .equations
+            .iter()
+            .flat_map(|eq| eq.body.params())
+            .collect();
+
+        params.len()
+    }
+
+    fn jacobian<C>(&self, ctx: &C) -> Result<Jacobian, EvaluationError>
+    where
+        C: Context,
+    {
+        Jacobian::create(&self.equations, ctx)
     }
 }
 
@@ -97,7 +115,7 @@ impl FromIterator<Equation> for SystemOfEquations {
 fn solve_with_newtons_method<C>(
     jacobian: &Jacobian,
     ctx: &C,
-) -> Result<HashMap<Parameter, f64>, SolveError>
+) -> Result<Vec<f64>, SolveError>
 where
     C: Context,
 {
@@ -128,7 +146,7 @@ where
         todo!()
     }
 
-    todo!()
+    Ok(solution)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -175,7 +193,12 @@ impl Jacobian {
         })
     }
 
-    fn initial_values(&self) -> Vec<f64> { vec![0.0; self.unknowns.len()] }
+    fn initial_values(&self) -> Vec<f64> {
+        // TODO: Figure out a smarter way to get the initial guess. How fast
+        // newton's method converges changes a lot depending on the quality of
+        // your starting point.
+        vec![0.0; self.unknowns.len()]
+    }
 
     fn evaluate<C>(
         &self,
@@ -220,5 +243,43 @@ mod tests {
 
         assert_eq!(got.known_values.len(), 1);
         assert_eq!(got.known_values[&x], 5.0);
+    }
+
+    #[test]
+    fn calculate_jacobian_of_known_system_of_equations() {
+        // See https://en.wikipedia.org/wiki/Jacobian_matrix_and_determinant#Example_5
+        let system = SystemOfEquations::new()
+            .with("5 * b".parse().unwrap())
+            .with("4*a*a - 2*sin(b*c)".parse().unwrap())
+            .with("b*c".parse().unwrap());
+        let ctx = Builtins::default();
+
+        let got = system.jacobian(&ctx).unwrap();
+
+        assert_eq!(
+            got.matrix.num_columns(),
+            system.unknowns(),
+            "There are 3 unknowns"
+        );
+        assert_eq!(
+            got.matrix.num_rows(),
+            system.equations.len(),
+            "There are 3 equations"
+        );
+        // Note: I needed to rearrange the Wikipedia equations a bit because
+        // our solver multiplied things differently (i.e. "c*2" instead of
+        // "2*c")
+        let should_be = [
+            ["0", "5", "0"],
+            ["8*a", "-cos(b*c)*c*2", "-cos(b*c)*b*2"],
+            ["0", "c", "b"],
+        ];
+        let should_be: Matrix<Expression> = Matrix::from(should_be)
+            .try_map(|_, _, expr| expr.parse())
+            .unwrap();
+        // Usually I wouldn't compare strings, but it's possible to get
+        // different (but equivalent!) trees when calculating the jacobian vs
+        // parsing from a string
+        assert_eq!(got.matrix.to_string(), should_be.to_string());
     }
 }

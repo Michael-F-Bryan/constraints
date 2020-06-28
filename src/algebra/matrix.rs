@@ -2,13 +2,13 @@
 //! the operations and trait implementations we need.
 
 use std::{
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     ops::{Add, Index, IndexMut, Mul},
 };
 
 /// A general-purpose MxN matrix laid out seqentially in memory.
 #[derive(Clone, PartialEq)]
-pub(crate) struct Matrix<T> {
+pub struct Matrix<T> {
     cells: Box<[T]>,
     columns: usize,
     rows: usize,
@@ -55,6 +55,10 @@ impl<T> Matrix<T> {
             rows,
         })
     }
+
+    pub fn num_columns(&self) -> usize { self.columns }
+
+    pub fn num_rows(&self) -> usize { self.rows }
 
     pub fn rows(&self) -> impl Iterator<Item = &[T]> + '_ {
         let rows = self.rows;
@@ -144,6 +148,31 @@ impl Matrix<f64> {
 impl<T: Debug> Debug for Matrix<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.rows()).finish()
+    }
+}
+
+impl<T: Display> Display for Matrix<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
+
+        for (i, row) in self.rows().enumerate() {
+            write!(f, "[")?;
+            for (j, cell) in row.iter().enumerate() {
+                if j > 0 {
+                    write!(f, ", ")?;
+                }
+
+                write!(f, "{}", cell)?;
+            }
+            write!(f, "]")?;
+            if i + 1 < self.rows {
+                write!(f, ",\n ")?;
+            }
+        }
+
+        write!(f, "]")?;
+
+        Ok(())
     }
 }
 
