@@ -1,12 +1,12 @@
 use crate::algebra::{
+    matrix::Matrix,
     ops::{self, Context, EvaluationError},
     Expression, Parameter, ParseError,
 };
 use std::{
     collections::HashMap,
-    fmt::{self, Debug, Formatter},
+    fmt::Debug,
     iter::{Extend, FromIterator},
-    ops::Index,
     str::FromStr,
 };
 
@@ -69,14 +69,14 @@ impl SystemOfEquations {
         self.equations.push(equation);
     }
 
-    pub fn solve<C>(self, ctx: &C) -> Result<Solution, EvaluationError>
+    pub fn solve<C>(self, ctx: &C) -> Result<Solution, SolveError>
     where
         C: Context,
     {
         let jacobian = Jacobian::create(&self.equations, ctx)?;
-        let got = solve_with_newtons_method(&jacobian, ctx);
+        let got = solve_with_newtons_method(&jacobian, ctx)?;
 
-        todo!()
+        Ok(Solution { known_values: got })
     }
 }
 
@@ -102,6 +102,10 @@ where
     C: Context,
 {
     const MAX_ITERATIONS: usize = 50;
+    // To solve the function, F, using Newton's method:
+    //   x_next = x_current - jacobian(F).inverse() * F(x_current)
+    //
+    // See also: https://en.wikipedia.org/wiki/Newton%27s_method#Nonlinear_systems_of_equations
 
     let mut solution = jacobian.initial_values();
 
@@ -109,19 +113,12 @@ where
         // In each iteration we need to evaluate the symbolic jacobian matrix
         // with our tentative values. This gives us the derivative of each
         // parameter for each equation.
-        let coefficients = jacobian.evaluate(&solution, ctx)?;
+        let inverted_jacobian = jacobian.evaluate(&solution, ctx)?.inverted();
 
-        // Next, use least squares to refine the solution
-        solve_least_squares(
-            coefficients,
-            &jacobian.unknowns,
-            &mut solution,
-            ctx,
-        )?;
-
-        // Take the Newton step using our refined solution;
+        // Take the Newton step using our refined solution
+        //
+        //   x_next = x_current - jacobian(F).inverse() * F(x_current)
         //      J(x_n) (x_{n+1} - x_n) = 0 - F(x_n)
-        todo!();
 
         // we need to re-evaluate the functions because our parameters just
         // changed
@@ -133,21 +130,6 @@ where
 
     todo!()
 }
-
-fn solve_least_squares<C>(
-    matrix: Matrix<f64>,
-    unknowns: &[Parameter],
-    unknown_values: &mut HashMap<Parameter, f64>,
-    ctx: &C,
-) -> Result<(), SolveError>
-where
-    C: Context,
-{
-    todo!()
-}
-
-/// Solve the matrix equation `Ax = b`
-fn solve_linear_system() {}
 
 #[derive(Debug, Clone, PartialEq)]
 struct Jacobian {
@@ -193,30 +175,19 @@ impl Jacobian {
         })
     }
 
-    fn initial_values(&self) -> HashMap<Parameter, f64> {
-        self.unknowns
-            .clone()
-            .into_iter()
-            .map(|p| (p, 0.0))
-            .collect()
-    }
+    fn initial_values(&self) -> Vec<f64> { vec![0.0; self.unknowns.len()] }
 
     fn evaluate<C>(
         &self,
-        params: &HashMap<Parameter, f64>,
+        current_values: &[f64],
         ctx: &C,
     ) -> Result<Matrix<f64>, EvaluationError>
     where
         C: Context,
     {
-        self.matrix.try_map(|column, row, expr| {
-            // evaluate the expression using the corresponding parameter's
-            // value.
-            //
-            // Note: This relies on the fact that the i'th column corresponds to
-            // the i'th parameter in the jacobian
+        self.matrix.try_map(|column, _row, expr| {
+            let value = current_values[column];
             let param = &self.unknowns[column];
-            let value = params[param];
 
             let expr =
                 ops::substitute(expr, param, &Expression::Constant(value));
@@ -228,107 +199,6 @@ impl Jacobian {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Solution {
     known_values: HashMap<Parameter, f64>,
-}
-
-#[derive(Clone, PartialEq)]
-struct Matrix<T> {
-    cells: Box<[T]>,
-    columns: usize,
-    rows: usize,
-}
-
-impl<T> Matrix<T> {
-    fn init<F>(columns: usize, rows: usize, mut get_cell: F) -> Self
-    where
-        F: FnMut(usize, usize) -> T,
-    {
-        let mut cells = Vec::with_capacity(columns * rows);
-
-        for row in 0..rows {
-            for column in 0..columns {
-                cells.push(get_cell(column, row));
-            }
-        }
-
-        Matrix {
-            cells: cells.into_boxed_slice(),
-            columns,
-            rows,
-        }
-    }
-
-    fn try_init<F, E>(
-        columns: usize,
-        rows: usize,
-        mut get_cell: F,
-    ) -> Result<Self, E>
-    where
-        F: FnMut(usize, usize) -> Result<T, E>,
-    {
-        let mut cells = Vec::with_capacity(columns * rows);
-
-        for row in 0..rows {
-            for column in 0..columns {
-                cells.push(get_cell(column, row)?);
-            }
-        }
-
-        Ok(Matrix {
-            cells: cells.into_boxed_slice(),
-            columns,
-            rows,
-        })
-    }
-
-    fn rows(&self) -> impl Iterator<Item = &[T]> + '_ {
-        let rows = self.rows;
-        let columns = self.columns;
-
-        (0..rows)
-            .map(move |row| row * columns..(row + 1) * columns)
-            .map(move |range| &self.cells[range])
-    }
-
-    fn get(&self, column: usize, row: usize) -> Option<&T> {
-        let ix = row * self.rows + column;
-        self.cells.get(ix)
-    }
-
-    fn try_map<F, Q, E>(&self, mut func: F) -> Result<Matrix<Q>, E>
-    where
-        F: FnMut(usize, usize, &T) -> Result<Q, E>,
-    {
-        Matrix::try_init(self.columns, self.rows, |column, row| {
-            func(column, row, &self[(column, row)])
-        })
-    }
-
-    fn transpose(&self) -> Self
-    where
-        T: Clone,
-    {
-        Matrix::init(self.rows, self.columns, |column, row| {
-            self[(row, column)].clone()
-        })
-    }
-}
-
-impl<T: Debug> Debug for Matrix<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_list().entries(self.rows()).finish()
-    }
-}
-
-impl<T> Index<(usize, usize)> for Matrix<T> {
-    type Output = T;
-
-    fn index(&self, (column, row): (usize, usize)) -> &Self::Output {
-        assert!(column < self.columns, "Column index out of bounds");
-        assert!(row < self.rows, "Row index out of bounds");
-
-        self.get(column, row)
-            .expect("We've already done bounds checks")
-    }
 }
 
 #[cfg(test)]
@@ -350,15 +220,5 @@ mod tests {
 
         assert_eq!(got.known_values.len(), 1);
         assert_eq!(got.known_values[&x], 5.0);
-    }
-
-    #[test]
-    fn matrix_representation() {
-        let matrix = Matrix::init(3, 2, |column, row| column + row);
-        let should_be = "[[0, 1, 2], [1, 2, 3]]";
-
-        let got = format!("{:?}", matrix);
-
-        assert_eq!(got, should_be);
     }
 }

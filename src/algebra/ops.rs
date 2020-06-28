@@ -390,7 +390,10 @@ where
     Ok(got)
 }
 
-pub fn evaluate<C>(expr: &Expression, ctx: &C) -> Result<f64, EvaluationError> {
+pub fn evaluate<C>(
+    _expr: &Expression,
+    _ctx: &C,
+) -> Result<f64, EvaluationError> {
     unimplemented!()
 }
 

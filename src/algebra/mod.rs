@@ -2,6 +2,7 @@
 
 mod equations;
 mod expr;
+mod matrix;
 pub mod ops;
 mod parse;
 
