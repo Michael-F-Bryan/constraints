@@ -73,7 +73,7 @@ impl SystemOfEquations {
         C: Context,
     {
         let jacobian = self.jacobian(ctx)?;
-        let got = solve_with_newtons_method(&jacobian, ctx)?;
+        let got = solve_with_newtons_method(&jacobian, &self.equations, ctx)?;
 
         Ok(Solution {
             known_values: jacobian.unknowns.into_iter().zip(got).collect(),
@@ -88,6 +88,20 @@ impl SystemOfEquations {
             .collect();
 
         params.len()
+    }
+
+    pub fn from_equations<E, S>(equations: E) -> Result<Self, ParseError>
+    where
+        E: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut system = SystemOfEquations::new();
+
+        for equation in equations {
+            system.push(equation.as_ref().parse()?);
+        }
+
+        Ok(system)
     }
 
     fn jacobian<C>(&self, ctx: &C) -> Result<Jacobian, EvaluationError>
@@ -114,6 +128,7 @@ impl FromIterator<Equation> for SystemOfEquations {
 
 fn solve_with_newtons_method<C>(
     jacobian: &Jacobian,
+    equations: &[Equation],
     ctx: &C,
 ) -> Result<Vec<f64>, SolveError>
 where
@@ -136,14 +151,31 @@ where
         // Take the Newton step using our refined solution
         //
         //   x_next = x_current - jacobian(F).inverse() * F(x_current)
-        //      J(x_n) (x_{n+1} - x_n) = 0 - F(x_n)
+        let parameter_value = |p: &Parameter| {
+            jacobian
+                .unknowns
+                .iter()
+                .position(|other_p| p == other_p)
+                .map(|ix| solution[ix])
+        };
+        let current_value = equations
+            .iter()
+            .map(|eq| ops::evaluate(&eq.body, &parameter_value, ctx))
+            .collect::<Result<Vec<_>, _>>()?;
+        let b = Matrix::column_vector(solution.clone())
+            - dbg!(inverted_jacobian) * Matrix::column_vector(current_value);
+        let new_solution = b.as_column_vector().unwrap().to_vec();
 
-        // we need to re-evaluate the functions because our parameters just
-        // changed
-        let re_evaluated = jacobian.evaluate(&solution, ctx)?;
+        // Note: If it's converged, `jacobian(F) * x` should be the zero vector
+        if solution
+            .iter()
+            .zip(new_solution.iter())
+            .all(|(left, right)| (left - right).abs() <= 1e-10)
+        {
+            break;
+        }
 
-        // and check to see if we've converged yet
-        todo!()
+        solution = new_solution;
     }
 
     Ok(solution)
@@ -214,7 +246,14 @@ impl Jacobian {
 
             let expr =
                 ops::substitute(expr, param, &Expression::Constant(value));
-            ops::evaluate(&expr, ctx)
+
+            let getter = |param: &Parameter| {
+                self.unknowns
+                    .iter()
+                    .position(|p| p == param)
+                    .map(|parameter_index| current_values[parameter_index])
+            };
+            ops::evaluate(&expr, &getter, ctx)
         })
     }
 }
@@ -248,10 +287,12 @@ mod tests {
     #[test]
     fn calculate_jacobian_of_known_system_of_equations() {
         // See https://en.wikipedia.org/wiki/Jacobian_matrix_and_determinant#Example_5
-        let system = SystemOfEquations::new()
-            .with("5 * b".parse().unwrap())
-            .with("4*a*a - 2*sin(b*c)".parse().unwrap())
-            .with("b*c".parse().unwrap());
+        let system = SystemOfEquations::from_equations(&[
+            "5 * b",
+            "4*a*a - 2*sin(b*c)",
+            "b*c",
+        ])
+        .unwrap();
         let ctx = Builtins::default();
 
         let got = system.jacobian(&ctx).unwrap();
@@ -281,5 +322,25 @@ mod tests {
         // different (but equivalent!) trees when calculating the jacobian vs
         // parsing from a string
         assert_eq!(got.matrix.to_string(), should_be.to_string());
+    }
+
+    #[test]
+    fn solve_simple_equations() {
+        let system =
+            SystemOfEquations::from_equations(&["x-1", "y-2", "z-3"]).unwrap();
+        let ctx = Builtins::default();
+        let jacobian = system.jacobian(&ctx).unwrap();
+
+        let got = solve_with_newtons_method(&jacobian, &system.equations, &ctx)
+            .unwrap();
+
+        let named_parameters: HashMap<Parameter, f64> =
+            jacobian.unknowns.into_iter().zip(got).collect();
+        let x = Parameter::named("x");
+        let y = Parameter::named("y");
+        let z = Parameter::named("z");
+        assert_eq!(named_parameters[&x], 1.0);
+        assert_eq!(named_parameters[&y], 2.0);
+        assert_eq!(named_parameters[&z], 3.0);
     }
 }

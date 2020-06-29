@@ -3,7 +3,7 @@
 
 use std::{
     fmt::{self, Debug, Display, Formatter},
-    ops::{Add, Index, IndexMut, Mul},
+    ops::{Add, Index, IndexMut, Mul, Sub},
 };
 
 /// A general-purpose MxN matrix laid out seqentially in memory.
@@ -15,6 +15,15 @@ pub struct Matrix<T> {
 }
 
 impl<T> Matrix<T> {
+    fn new(cells: Box<[T]>, columns: usize, rows: usize) -> Self {
+        debug_assert_eq!(cells.len(), columns * rows);
+        Matrix {
+            cells,
+            columns,
+            rows,
+        }
+    }
+
     /// Create a new [`Matrix`] by invoking some `fn(column, row) -> T` function
     /// for each cell.
     pub fn init<F>(columns: usize, rows: usize, mut get_cell: F) -> Self
@@ -49,11 +58,16 @@ impl<T> Matrix<T> {
             }
         }
 
-        Ok(Matrix {
-            cells: cells.into_boxed_slice(),
-            columns,
-            rows,
-        })
+        Ok(Matrix::new(cells.into_boxed_slice(), columns, rows))
+    }
+
+    pub fn column_vector<I>(items: I) -> Matrix<T>
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let items: Box<[T]> = items.into_iter().collect();
+        let len = items.len();
+        Matrix::new(items, 1, len)
     }
 
     pub fn num_columns(&self) -> usize { self.columns }
@@ -131,10 +145,18 @@ impl<T> Matrix<T> {
                 .map(move |(j, cell)| (j, i, cell))
         })
     }
+
+    pub fn as_column_vector(&self) -> Option<&[T]> {
+        if self.columns == 1 {
+            Some(&self.cells)
+        } else {
+            None
+        }
+    }
 }
 
 impl Matrix<f64> {
-    pub fn determinant(&self) -> f64 { todo!() }
+    pub fn determinant(&self) -> f64 { 1.3 }
 
     pub fn inverted(&self) -> Self {
         let mut transposed = self.transposed();
@@ -218,6 +240,34 @@ impl<T: Add> Add for Matrix<T> {
             .into_iter()
             .zip(rhs.cells.into_vec().into_iter())
             .map(|(left, right)| left + right)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Matrix {
+            cells,
+            columns,
+            rows,
+        }
+    }
+}
+
+impl<T: Sub> Sub for Matrix<T> {
+    type Output = Matrix<<T as Sub>::Output>;
+
+    fn sub(self, rhs: Matrix<T>) -> Self::Output {
+        let Matrix {
+            cells,
+            columns,
+            rows,
+        } = self;
+        assert_eq!(columns, rhs.columns);
+        assert_eq!(rows, rhs.rows);
+
+        let cells = cells
+            .into_vec()
+            .into_iter()
+            .zip(rhs.cells.into_vec().into_iter())
+            .map(|(left, right)| left - right)
             .collect::<Vec<_>>()
             .into_boxed_slice();
 

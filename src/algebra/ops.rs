@@ -390,11 +390,40 @@ where
     Ok(got)
 }
 
-pub fn evaluate<C>(
-    _expr: &Expression,
-    _ctx: &C,
-) -> Result<f64, EvaluationError> {
-    unimplemented!()
+pub fn evaluate<C, F>(
+    expr: &Expression,
+    parameter_value: &F,
+    ctx: &C,
+) -> Result<f64, EvaluationError>
+where
+    C: Context,
+    F: Fn(&Parameter) -> Option<f64>,
+{
+    match expr {
+        Expression::Parameter(p) => match parameter_value(p) {
+            Some(value) => Ok(value),
+            None => Err(EvaluationError::UnevaluatedParameter(p.clone())),
+        },
+        Expression::Constant(value) => Ok(*value),
+        Expression::Binary { left, right, op } => {
+            let left = evaluate(left, parameter_value, ctx)?;
+            let right = evaluate(right, parameter_value, ctx)?;
+            Ok(match op {
+                BinaryOperation::Plus => left + right,
+                BinaryOperation::Minus => left - right,
+                BinaryOperation::Times => left * right,
+                BinaryOperation::Divide => left / right,
+            })
+        },
+        Expression::Negate(inner) => {
+            let inner = evaluate(inner, parameter_value, ctx)?;
+            Ok(-inner)
+        },
+        Expression::FunctionCall { function, argument } => {
+            let argument = evaluate(argument, parameter_value, ctx)?;
+            ctx.evaluate_function(function, argument)
+        },
+    }
 }
 
 #[cfg(test)]
@@ -519,6 +548,35 @@ mod tests {
             let got = fold_constants(&got, &ctx);
 
             assert_eq!(got, should_be, "{} != {}", got, should_be);
+        }
+    }
+
+    #[test]
+    fn evaluate_some_expressions() {
+        let inputs =
+            vec![("1", 1.0), ("1+1", 2.0), ("sin(90)", 1.0), ("x", 0.5)];
+        let ctx = Builtins::default();
+
+        for (src, should_be) in inputs {
+            let expr: Expression = src.parse().unwrap();
+
+            let got = evaluate(&expr, &get_parameter_by_name, &ctx).unwrap();
+
+            assert_eq!(got, should_be);
+        }
+
+        fn get_parameter_by_name(p: &Parameter) -> Option<f64> {
+            let name = match p {
+                Parameter::Named(name) => name.as_str(),
+                _ => return None,
+            };
+
+            match name {
+                "x" => Some(0.5),
+                "y" => Some(-10.0),
+                "z" => Some(0.0),
+                _ => None,
+            }
         }
     }
 }
