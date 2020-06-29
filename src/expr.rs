@@ -1,4 +1,4 @@
-use crate::algebra::parse::ParseError;
+use crate::parse::ParseError;
 use smol_str::SmolStr;
 use std::{
     fmt::{self, Display, Formatter},
@@ -191,7 +191,7 @@ impl Neg for Expression {
 impl FromStr for Expression {
     type Err = ParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> { crate::algebra::parse(s) }
+    fn from_str(s: &str) -> Result<Self, Self::Err> { crate::parse(s) }
 }
 
 impl Display for Expression {

@@ -1,4 +1,4 @@
-use crate::algebra::{BinaryOperation, Expression, Parameter};
+use crate::{BinaryOperation, Expression, Parameter};
 use std::{iter::Peekable, ops::Range};
 
 /// Parse an [`Expression`] tree from some text.

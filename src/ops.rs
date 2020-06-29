@@ -1,6 +1,6 @@
 //! [`Expression`] operations.
 
-use crate::algebra::{BinaryOperation, Expression, Parameter};
+use crate::{BinaryOperation, Expression, Parameter};
 use euclid::approxeq::ApproxEq;
 use smol_str::SmolStr;
 

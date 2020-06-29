@@ -1,4 +1,4 @@
-use crate::algebra::{
+use crate::{
     ops::{self, Context, EvaluationError},
     Expression, Parameter, ParseError,
 };
@@ -334,7 +334,7 @@ impl<'a> Jacobian<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algebra::ops::Builtins;
+    use crate::ops::Builtins;
 
     #[test]
     fn single_equality() {
