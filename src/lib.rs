@@ -8,6 +8,7 @@ mod equations;
 mod expr;
 pub mod ops;
 mod parse;
+mod solve;
 
 pub use equations::{Equation, SystemOfEquations};
 pub use expr::{BinaryOperation, Expression, Parameter};
