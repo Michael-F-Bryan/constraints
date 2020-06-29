@@ -1,17 +1,27 @@
 use constraints::{ops::Builtins, SystemOfEquations};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut system = SystemOfEquations::new();
     let stdin = std::io::stdin();
+    let mut lines = BufReader::new(stdin.lock()).lines();
 
-    for line in BufReader::new(stdin.lock()).lines() {
-        let line = line?;
-        match line.parse() {
-            Ok(equation) => system.push(equation),
-            Err(e) => eprintln!("Unable to parse \"{}\": {}", line, e),
+    loop {
+        let mut stdout = std::io::stdout();
+        write!(stdout, "> ")?;
+        stdout.flush()?;
+
+        match lines.next() {
+            Some(Ok(line)) => match line.parse() {
+                Ok(equation) => system.push(equation),
+                Err(e) => eprintln!("Unable to parse \"{}\": {}", line, e),
+            },
+            Some(Err(e)) => return Err(Box::new(e)),
+            None => break,
         }
     }
+
+    println!();
 
     let unknowns: Vec<_> =
         system.unknowns().iter().map(ToString::to_string).collect();
