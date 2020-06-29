@@ -3,6 +3,10 @@
 use crate::{BinaryOperation, Expression, Parameter};
 use euclid::approxeq::ApproxEq;
 use smol_str::SmolStr;
+use std::{
+    error::Error,
+    fmt::{self, Display, Formatter},
+};
 
 /// Contextual information used when evaluating an [`Expression`].
 pub trait Context {
@@ -42,6 +46,24 @@ pub enum EvaluationError {
     /// value (i.e. a [`Expression::Constant`]).
     UnevaluatedParameter(Parameter),
 }
+
+impl Display for EvaluationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            EvaluationError::UnknownFunction { name } => {
+                write!(f, "No known function called \"{}\"", name)
+            },
+            EvaluationError::UnableToDifferentiate { name } => {
+                write!(f, "Unable to differentiate \"{}\"", name)
+            },
+            EvaluationError::UnevaluatedParameter(p) => {
+                write!(f, "The parameter, {}, needs to have a value", p)
+            },
+        }
+    }
+}
+
+impl Error for EvaluationError {}
 
 /// The set of builtin functions.
 #[derive(Debug, Default)]

@@ -5,7 +5,8 @@ use crate::{
 use nalgebra::{DMatrix as Matrix, DVector as Vector};
 use std::{
     collections::HashMap,
-    fmt::Debug,
+    error::Error,
+    fmt::{self, Debug, Display, Formatter},
     iter::{Extend, FromIterator},
     str::FromStr,
 };
@@ -45,10 +46,32 @@ impl FromStr for Equation {
 pub enum SolveError {
     Eval(EvaluationError),
     DidntConverge,
+    NoSolution,
 }
 
 impl From<EvaluationError> for SolveError {
     fn from(e: EvaluationError) -> Self { SolveError::Eval(e) }
+}
+
+impl Display for SolveError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            SolveError::Eval(_) => write!(f, "Evaluation failed"),
+            SolveError::DidntConverge => {
+                write!(f, "The solution didn't converge")
+            },
+            SolveError::NoSolution => write!(f, "No solution found"),
+        }
+    }
+}
+
+impl Error for SolveError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            SolveError::Eval(inner) => Some(inner),
+            _ => None,
+        }
+    }
 }
 
 /// A builder for constructing a system of equations and solving them.
@@ -197,7 +220,7 @@ where
 
             let lookup = jacobian.lookup_value_by_name(solution.as_slice());
             let f_of_x = system.evaluate(&lookup, ctx)?;
-            step_newtons_method(evaluated_jacobian, &solution, f_of_x)
+            step_newtons_method(evaluated_jacobian, &solution, f_of_x)?
         };
 
         if approx::relative_eq!(x_next, solution) {
@@ -213,7 +236,7 @@ fn step_newtons_method(
     jacobian: Matrix<f64>,
     x: &Vector<f64>,
     f_of_x: Vector<f64>,
-) -> Vector<f64> {
+) -> Result<Vector<f64>, SolveError> {
     // We're trying to solve:
     //   x_next = x_current - jacobian(F).inverse() * F(x_current)
     //
@@ -223,14 +246,17 @@ fn step_newtons_method(
     // Note that we use LU decomposition to solve equations of the form `Ax = b`
 
     let negative_f_of_x = -f_of_x;
-    let delta_x = jacobian.lu().solve(&negative_f_of_x).unwrap();
+    let delta_x = jacobian
+        .lu()
+        .solve(&negative_f_of_x)
+        .ok_or(SolveError::NoSolution)?;
 
-    delta_x + x
+    Ok(delta_x + x)
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Solution {
-    known_values: HashMap<Parameter, f64>,
+    pub known_values: HashMap<Parameter, f64>,
 }
 
 /// A matrix of [`Expression`]s representing the partial derivatives for each
@@ -458,7 +484,7 @@ mod tests {
         assert_eq!(f_of_x_0.as_slice(), &[3.0, 13.0]);
 
         // one iteration of newton's method
-        let x_1 = step_newtons_method(jacobian_of_x_0, &x_0, f_of_x_0);
+        let x_1 = step_newtons_method(jacobian_of_x_0, &x_0, f_of_x_0).unwrap();
         let should_be = Vector::from_vec(vec![-10.0 / 12.0, 17.0 / 12.0]);
         approx::relative_eq!(x_1, should_be);
     }

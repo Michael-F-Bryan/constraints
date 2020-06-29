@@ -1,5 +1,9 @@
 use crate::{BinaryOperation, Expression, Parameter};
-use std::{iter::Peekable, ops::Range};
+use std::{
+    fmt::{self, Display, Formatter},
+    iter::Peekable,
+    ops::Range,
+};
 
 /// Parse an [`Expression`] tree from some text.
 pub fn parse(s: &str) -> Result<Expression, ParseError> {
@@ -226,6 +230,42 @@ pub enum ParseError {
         span: Range<usize>,
         expected: &'static [TokenKind],
     },
+}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::InvalidCharacter { character, index } => write!(
+                f,
+                "Unexpected character, \"{}\" at index {}",
+                character, index
+            ),
+            ParseError::UnexpectedEndOfInput => {
+                write!(f, "Unexpected end of input")
+            },
+            ParseError::UnexpectedToken {
+                found,
+                span,
+                expected,
+            } => {
+                write!(
+                    f,
+                    "Found a {:?} at {:?} but was expecting one of [",
+                    found, span
+                )?;
+                for (i, kind) in expected.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{:?}", kind)?;
+                }
+                write!(f, "]")?;
+
+                Ok(())
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
