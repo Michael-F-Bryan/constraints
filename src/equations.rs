@@ -132,3 +132,17 @@ impl FromIterator<Equation> for SystemOfEquations {
         }
     }
 }
+
+impl<'a> IntoIterator for &'a SystemOfEquations {
+    type IntoIter = <&'a [Equation] as IntoIterator>::IntoIter;
+    type Item = &'a Equation;
+
+    fn into_iter(self) -> Self::IntoIter { self.equations.iter() }
+}
+
+impl IntoIterator for SystemOfEquations {
+    type IntoIter = <Vec<Equation> as IntoIterator>::IntoIter;
+    type Item = Equation;
+
+    fn into_iter(self) -> Self::IntoIter { self.equations.into_iter() }
+}

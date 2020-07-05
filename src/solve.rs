@@ -386,16 +386,33 @@ mod tests {
                 let equations = SystemOfEquations::from_equations(& $equations).unwrap();
                 let ctx = Builtins::default();
 
-                let got = equations.solve(&ctx).unwrap();
+                let got = equations.clone().solve(&ctx).unwrap();
 
-                let mut should_be = HashMap::new();
+                let mut should_be = HashMap::<Parameter, f64>::new();
 
                 $(
                     let p = Parameter::named(stringify!($var_name));
                     should_be.insert(p, $value);
                 )*
 
-                assert_eq!(got.known_values, should_be);
+                assert_eq!(
+                    got.known_values.keys().collect::<std::collections::HashSet<_>>(),
+                    should_be.keys().collect::<std::collections::HashSet<_>>(),
+                    "The keys should match",
+                );
+
+                $(
+                    let p = Parameter::named(stringify!($var_name));
+                    approx::assert_relative_eq!(got.known_values[&p], should_be[&p]);
+                )*
+
+                // double-check with the equations to make sure it all adds up
+                for equation in equations {
+                    let lookup = |p: &Parameter| got.known_values.get(p).copied();
+                    let evaluated = crate::ops::evaluate(&equation.body, &lookup, &ctx).unwrap();
+
+                    approx::assert_relative_eq!(evaluated, 0.0);
+                }
             }
         };
     }
@@ -404,6 +421,8 @@ mod tests {
     solve_test!(unrelated_equations, ["x = 5", "y = -2"] => { x: 5.0, y: -2.0 });
     solve_test!(difference_of_numbers, ["x + y = 10", "x - y = 0"] => { x: 5.0, y: 5.0 });
     solve_test!(simple_trig, ["sin(x) = 0"] => { x: 0.0 });
+    solve_test!(sin_x_take_cos_x, ["sin(x) - cos(x + 90) = 0"] => { x: 0.0 });
     solve_test!(#[ignore] simple_trig_2, ["cos(x) = 1"] => { x: 0.0 });
     solve_test!(#[ignore] difference_of_numbers_reversed, ["x - y = 0", "x + y = 10"] => { x: 5.0, y: 5.0 });
+    solve_test!(#[ignore] trig_equation_with_no_solution, ["sin(x) * cos(x + 90) = 0.5"] => {x: 0.0});
 }
