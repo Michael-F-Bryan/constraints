@@ -374,4 +374,36 @@ mod tests {
         let should_be = Vector::from_vec(vec![-10.0 / 12.0, 17.0 / 12.0]);
         approx::relative_eq!(x_1, should_be);
     }
+
+    macro_rules! solve_test {
+        ($(#[$attr:meta])* $name:ident, $equations:expr => { $( $var_name:ident : $value:expr ),* $(,)? }
+        ) => {
+            $(
+                #[$attr]
+            )*
+            #[test]
+            fn $name() {
+                let equations = SystemOfEquations::from_equations(& $equations).unwrap();
+                let ctx = Builtins::default();
+
+                let got = equations.solve(&ctx).unwrap();
+
+                let mut should_be = HashMap::new();
+
+                $(
+                    let p = Parameter::named(stringify!($var_name));
+                    should_be.insert(p, $value);
+                )*
+
+                assert_eq!(got.known_values, should_be);
+            }
+        };
+    }
+
+    solve_test!(x_is_5, ["x = 5"] => { x: 5.0 });
+    solve_test!(unrelated_equations, ["x = 5", "y = -2"] => { x: 5.0, y: -2.0 });
+    solve_test!(difference_of_numbers, ["x + y = 10", "x - y = 0"] => { x: 5.0, y: 5.0 });
+    solve_test!(simple_trig, ["sin(x) = 0"] => { x: 0.0 });
+    solve_test!(#[ignore] simple_trig_2, ["cos(x) = 1"] => { x: 0.0 });
+    solve_test!(#[ignore] difference_of_numbers_reversed, ["x - y = 0", "x + y = 10"] => { x: 5.0, y: 5.0 });
 }

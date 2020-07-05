@@ -66,6 +66,7 @@ impl Expression {
         }
     }
 
+    /// Iterate over all functions used by this [`Expression`].
     pub fn functions(&self) -> impl Iterator<Item = &str> + '_ {
         self.iter().filter_map(|expr| match expr {
             Expression::FunctionCall { name, .. } => Some(name.as_ref()),
