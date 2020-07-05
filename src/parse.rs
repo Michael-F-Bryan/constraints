@@ -3,6 +3,7 @@ use std::{
     fmt::{self, Display, Formatter},
     iter::Peekable,
     ops::Range,
+    rc::Rc,
 };
 
 /// Parse an [`Expression`] tree from some text.
@@ -108,8 +109,8 @@ impl<'a> Parser<'a> {
                     let right = then(self)?;
 
                     return Ok(Expression::Binary {
-                        left: Box::new(left),
-                        right: Box::new(right),
+                        left: Rc::new(left),
+                        right: Rc::new(right),
                         op: candidate.as_binary_op(),
                     });
                 }
@@ -130,7 +131,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Minus) => {
                 let _ = self.advance()?;
                 let operand = self.factor()?;
-                return Ok(Expression::Negate(Box::new(operand)));
+                return Ok(Expression::Negate(Rc::new(operand)));
             },
             Some(TokenKind::Identifier) => {
                 return self.variable_or_function_call()
@@ -192,7 +193,7 @@ impl<'a> Parser<'a> {
         if kind == TokenKind::CloseParen {
             Ok(Expression::FunctionCall {
                 function: identifier.text.into(),
-                argument: Box::new(argument),
+                argument: Rc::new(argument),
             })
         } else {
             Err(ParseError::UnexpectedToken {

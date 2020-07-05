@@ -6,6 +6,7 @@ use smol_str::SmolStr;
 use std::{
     error::Error,
     fmt::{self, Display, Formatter},
+    rc::Rc,
 };
 
 /// Contextual information used when evaluating an [`Expression`].
@@ -95,16 +96,16 @@ impl Context for Builtins {
         match name {
             "sin" => Ok(Expression::FunctionCall {
                 function: "cos".into(),
-                argument: Box::new(Expression::Parameter(param.clone())),
+                argument: Rc::new(Expression::Parameter(param.clone())),
             }),
             "cos" => Ok(-Expression::FunctionCall {
                 function: "sin".into(),
-                argument: Box::new(Expression::Parameter(param.clone())),
+                argument: Rc::new(Expression::Parameter(param.clone())),
             }),
             "sqrt" => {
                 let sqrt_x = Expression::FunctionCall {
                     function: "sqrt".into(),
-                    argument: Box::new(Expression::Parameter(param.clone())),
+                    argument: Rc::new(Expression::Parameter(param.clone())),
                 };
                 Ok(Expression::Constant(0.5) / sqrt_x)
             },
@@ -127,8 +128,8 @@ where
         Expression::Negate(expr) => match fold_constants(expr, ctx) {
             Expression::Constant(value) => Expression::Constant(-value),
             // double negative
-            Expression::Negate(inner) => *inner,
-            other => Expression::Negate(Box::new(other)),
+            Expression::Negate(inner) => inner.as_ref().clone(),
+            other => Expression::Negate(Rc::new(other)),
         },
         Expression::FunctionCall { function, argument } => {
             let argument = fold_constants(argument, ctx);
@@ -141,7 +142,7 @@ where
 
             Expression::FunctionCall {
                 function: function.clone(),
-                argument: Box::new(argument),
+                argument: Rc::new(argument),
             }
         },
         _ => expr.clone(),
@@ -295,8 +296,8 @@ where
 
         // Oh well, we tried
         (left, right, op) => Expression::Binary {
-            left: Box::new(left),
-            right: Box::new(right),
+            left: Rc::new(left),
+            right: Rc::new(right),
             op,
         },
     }
@@ -321,8 +322,8 @@ pub fn substitute(
             let left = substitute(left, param, value);
             let right = substitute(right, param, value);
             Expression::Binary {
-                left: Box::new(left),
-                right: Box::new(right),
+                left: Rc::new(left),
+                right: Rc::new(right),
                 op: *op,
             }
         },
@@ -330,7 +331,7 @@ pub fn substitute(
         Expression::FunctionCall { function, argument } => {
             Expression::FunctionCall {
                 function: function.clone(),
-                argument: Box::new(substitute(argument, param, value)),
+                argument: Rc::new(substitute(argument, param, value)),
             }
         },
     }

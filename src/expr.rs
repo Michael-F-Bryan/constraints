@@ -3,10 +3,11 @@ use smol_str::SmolStr;
 use std::{
     fmt::{self, Display, Formatter},
     ops::{Add, Div, Mul, Neg, Sub},
+    rc::Rc,
     str::FromStr,
 };
 
-// PERF: Switch from Box<Expression> to Arc<Expression> and use Arc::make_mut()
+// PERF: Switch from Rc<Expression> to Arc<Expression> and use Arc::make_mut()
 // to get efficient copy-on-write semantics
 
 /// An expression.
@@ -19,20 +20,20 @@ pub enum Expression {
     /// An expression involving two operands.
     Binary {
         /// The left operand.
-        left: Box<Expression>,
+        left: Rc<Expression>,
         /// The right operand.
-        right: Box<Expression>,
+        right: Rc<Expression>,
         /// The binary operation being executed.
         op: BinaryOperation,
     },
     /// Negate the expression.
-    Negate(Box<Expression>),
+    Negate(Rc<Expression>),
     /// Invoke a builtin function.
     FunctionCall {
         /// The name of the function being called.
         function: SmolStr,
         /// The argument passed to this function call.
-        argument: Box<Expression>,
+        argument: Rc<Expression>,
     },
 }
 
@@ -139,8 +140,8 @@ impl Add for Expression {
 
     fn add(self, rhs: Expression) -> Expression {
         Expression::Binary {
-            left: Box::new(self),
-            right: Box::new(rhs),
+            left: Rc::new(self),
+            right: Rc::new(rhs),
             op: BinaryOperation::Plus,
         }
     }
@@ -151,8 +152,8 @@ impl Sub for Expression {
 
     fn sub(self, rhs: Expression) -> Expression {
         Expression::Binary {
-            left: Box::new(self),
-            right: Box::new(rhs),
+            left: Rc::new(self),
+            right: Rc::new(rhs),
             op: BinaryOperation::Minus,
         }
     }
@@ -163,8 +164,8 @@ impl Mul for Expression {
 
     fn mul(self, rhs: Expression) -> Expression {
         Expression::Binary {
-            left: Box::new(self),
-            right: Box::new(rhs),
+            left: Rc::new(self),
+            right: Rc::new(rhs),
             op: BinaryOperation::Times,
         }
     }
@@ -175,8 +176,8 @@ impl Div for Expression {
 
     fn div(self, rhs: Expression) -> Expression {
         Expression::Binary {
-            left: Box::new(self),
-            right: Box::new(rhs),
+            left: Rc::new(self),
+            right: Rc::new(rhs),
             op: BinaryOperation::Divide,
         }
     }
@@ -185,7 +186,7 @@ impl Div for Expression {
 impl Neg for Expression {
     type Output = Expression;
 
-    fn neg(self) -> Self::Output { Expression::Negate(Box::new(self)) }
+    fn neg(self) -> Self::Output { Expression::Negate(Rc::new(self)) }
 }
 
 impl FromStr for Expression {
@@ -277,93 +278,90 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display() {
+    fn pretty_printing_works_similarly_to_a_human() {
         let inputs = vec![
             (Expression::Constant(3.0), "3"),
             (
                 Expression::FunctionCall {
                     function: "sin".into(),
-                    argument: Box::new(Expression::Constant(5.0)),
+                    argument: Rc::new(Expression::Constant(5.0)),
                 },
                 "sin(5)",
             ),
+            (Expression::Negate(Rc::new(Expression::Constant(5.0))), "-5"),
             (
-                Expression::Negate(Box::new(Expression::Constant(5.0))),
-                "-5",
-            ),
-            (
-                Expression::Negate(Box::new(Expression::FunctionCall {
+                Expression::Negate(Rc::new(Expression::FunctionCall {
                     function: "sin".into(),
-                    argument: Box::new(Expression::Constant(5.0)),
+                    argument: Rc::new(Expression::Constant(5.0)),
                 })),
                 "-sin(5)",
             ),
             (
                 Expression::Binary {
-                    left: Box::new(Expression::Constant(1.0)),
-                    right: Box::new(Expression::Constant(1.0)),
+                    left: Rc::new(Expression::Constant(1.0)),
+                    right: Rc::new(Expression::Constant(1.0)),
                     op: BinaryOperation::Plus,
                 },
                 "1 + 1",
             ),
             (
                 Expression::Binary {
-                    left: Box::new(Expression::Constant(1.0)),
-                    right: Box::new(Expression::Constant(1.0)),
+                    left: Rc::new(Expression::Constant(1.0)),
+                    right: Rc::new(Expression::Constant(1.0)),
                     op: BinaryOperation::Minus,
                 },
                 "1 - 1",
             ),
             (
                 Expression::Binary {
-                    left: Box::new(Expression::Constant(1.0)),
-                    right: Box::new(Expression::Constant(1.0)),
+                    left: Rc::new(Expression::Constant(1.0)),
+                    right: Rc::new(Expression::Constant(1.0)),
                     op: BinaryOperation::Times,
                 },
                 "1*1",
             ),
             (
                 Expression::Binary {
-                    left: Box::new(Expression::Constant(1.0)),
-                    right: Box::new(Expression::Constant(1.0)),
+                    left: Rc::new(Expression::Constant(1.0)),
+                    right: Rc::new(Expression::Constant(1.0)),
                     op: BinaryOperation::Divide,
                 },
                 "1/1",
             ),
             (
-                Expression::Negate(Box::new(Expression::Binary {
-                    left: Box::new(Expression::Constant(1.0)),
-                    right: Box::new(Expression::Constant(1.0)),
+                Expression::Negate(Rc::new(Expression::Binary {
+                    left: Rc::new(Expression::Constant(1.0)),
+                    right: Rc::new(Expression::Constant(1.0)),
                     op: BinaryOperation::Plus,
                 })),
                 "-(1 + 1)",
             ),
             (
-                Expression::Negate(Box::new(Expression::Binary {
-                    left: Box::new(Expression::Constant(1.0)),
-                    right: Box::new(Expression::Constant(1.0)),
+                Expression::Negate(Rc::new(Expression::Binary {
+                    left: Rc::new(Expression::Constant(1.0)),
+                    right: Rc::new(Expression::Constant(1.0)),
                     op: BinaryOperation::Times,
                 })),
                 "-1*1",
             ),
             (
                 Expression::Binary {
-                    left: Box::new(Expression::Binary {
-                        left: Box::new(Expression::Constant(1.0)),
-                        right: Box::new(Expression::Constant(2.0)),
+                    left: Rc::new(Expression::Binary {
+                        left: Rc::new(Expression::Constant(1.0)),
+                        right: Rc::new(Expression::Constant(2.0)),
                         op: BinaryOperation::Plus,
                     }),
-                    right: Box::new(Expression::Constant(3.0)),
+                    right: Rc::new(Expression::Constant(3.0)),
                     op: BinaryOperation::Divide,
                 },
                 "(1 + 2)/3",
             ),
             (
                 Expression::Binary {
-                    left: Box::new(Expression::Constant(3.0)),
-                    right: Box::new(Expression::Binary {
-                        left: Box::new(Expression::Constant(1.0)),
-                        right: Box::new(Expression::Constant(2.0)),
+                    left: Rc::new(Expression::Constant(3.0)),
+                    right: Rc::new(Expression::Binary {
+                        left: Rc::new(Expression::Constant(1.0)),
+                        right: Rc::new(Expression::Constant(2.0)),
                         op: BinaryOperation::Times,
                     }),
                     op: BinaryOperation::Minus,
