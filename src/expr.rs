@@ -31,7 +31,7 @@ pub enum Expression {
     /// Invoke a builtin function.
     FunctionCall {
         /// The name of the function being called.
-        function: SmolStr,
+        name: SmolStr,
         /// The argument passed to this function call.
         argument: Rc<Expression>,
     },
@@ -65,9 +65,16 @@ impl Expression {
             _ => false,
         }
     }
+
+    pub fn functions(&self) -> impl Iterator<Item = &str> + '_ {
+        self.iter().filter_map(|expr| match expr {
+            Expression::FunctionCall { name, .. } => Some(name.as_ref()),
+            _ => None,
+        })
+    }
 }
 
-/// An iterator over the [`Parameter`]s in an [`Expression`].
+/// A depth-first iterator over the sub-[`Expression`]s in an [`Expression`].
 #[derive(Debug)]
 struct Iter<'expr> {
     to_visit: Vec<&'expr Expression>,
@@ -225,8 +232,8 @@ impl Display for Expression {
                 )?;
                 Ok(())
             },
-            Expression::FunctionCall { function, argument } => {
-                write!(f, "{}({})", function, argument)
+            Expression::FunctionCall { name, argument } => {
+                write!(f, "{}({})", name, argument)
             },
         }
     }
@@ -283,7 +290,7 @@ mod tests {
             (Expression::Constant(3.0), "3"),
             (
                 Expression::FunctionCall {
-                    function: "sin".into(),
+                    name: "sin".into(),
                     argument: Rc::new(Expression::Constant(5.0)),
                 },
                 "sin(5)",
@@ -291,7 +298,7 @@ mod tests {
             (Expression::Negate(Rc::new(Expression::Constant(5.0))), "-5"),
             (
                 Expression::Negate(Rc::new(Expression::FunctionCall {
-                    function: "sin".into(),
+                    name: "sin".into(),
                     argument: Rc::new(Expression::Constant(5.0)),
                 })),
                 "-sin(5)",
@@ -378,13 +385,17 @@ mod tests {
 
     #[test]
     fn iterate_over_parameters_in_an_expression() {
-        let expr: Expression = "x + sin(5*y / -z) - x".parse().unwrap();
-        let x = Parameter::named("x");
-        let y = Parameter::named("y");
-        let z = Parameter::named("z");
+        let expr: Expression =
+            "a + sin(5*(b + (c - d)) / -e) - a * f".parse().unwrap();
+        let a = Parameter::named("a");
+        let b = Parameter::named("b");
+        let c = Parameter::named("c");
+        let d = Parameter::named("d");
+        let e = Parameter::named("e");
+        let f = Parameter::named("f");
 
         let got: Vec<_> = expr.params().collect();
 
-        assert_eq!(got, &[&x, &y, &z, &x]);
+        assert_eq!(got, &[&a, &b, &c, &d, &e, &a, &f]);
     }
 }

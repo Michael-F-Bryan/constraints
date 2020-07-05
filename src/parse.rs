@@ -192,7 +192,7 @@ impl<'a> Parser<'a> {
 
         if kind == TokenKind::CloseParen {
             Ok(Expression::FunctionCall {
-                function: identifier.text.into(),
+                name: identifier.text.into(),
                 argument: Rc::new(argument),
             })
         } else {

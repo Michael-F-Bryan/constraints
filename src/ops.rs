@@ -95,16 +95,16 @@ impl Context for Builtins {
     ) -> Result<Expression, EvaluationError> {
         match name {
             "sin" => Ok(Expression::FunctionCall {
-                function: "cos".into(),
+                name: "cos".into(),
                 argument: Rc::new(Expression::Parameter(param.clone())),
             }),
             "cos" => Ok(-Expression::FunctionCall {
-                function: "sin".into(),
+                name: "sin".into(),
                 argument: Rc::new(Expression::Parameter(param.clone())),
             }),
             "sqrt" => {
                 let sqrt_x = Expression::FunctionCall {
-                    function: "sqrt".into(),
+                    name: "sqrt".into(),
                     argument: Rc::new(Expression::Parameter(param.clone())),
                 };
                 Ok(Expression::Constant(0.5) / sqrt_x)
@@ -131,17 +131,17 @@ where
             Expression::Negate(inner) => inner.as_ref().clone(),
             other => Expression::Negate(Rc::new(other)),
         },
-        Expression::FunctionCall { function, argument } => {
+        Expression::FunctionCall { name, argument } => {
             let argument = fold_constants(argument, ctx);
 
             if let Expression::Constant(argument) = argument {
-                if let Ok(result) = ctx.evaluate_function(function, argument) {
+                if let Ok(result) = ctx.evaluate_function(name, argument) {
                     return Expression::Constant(result);
                 }
             }
 
             Expression::FunctionCall {
-                function: function.clone(),
+                name: name.clone(),
                 argument: Rc::new(argument),
             }
         },
@@ -328,9 +328,9 @@ pub fn substitute(
             }
         },
         Expression::Negate(inner) => -substitute(inner, param, value),
-        Expression::FunctionCall { function, argument } => {
+        Expression::FunctionCall { name, argument } => {
             Expression::FunctionCall {
-                function: function.clone(),
+                name: name.clone(),
                 argument: Rc::new(substitute(argument, param, value)),
             }
         },
@@ -400,10 +400,10 @@ where
         },
 
         Expression::Negate(inner) => -partial_derivative(inner, param, ctx)?,
-        Expression::FunctionCall { function, argument } => {
+        Expression::FunctionCall { name, argument } => {
             // implement the chain rule: (f o g)' = (f' o g) * g'
             let g = Parameter::named("__temp__");
-            let f_dash_of_g = ctx.differentiate_function(function, &g)?;
+            let f_dash_of_g = ctx.differentiate_function(name, &g)?;
             let g_dash = partial_derivative(argument, param, ctx)?;
 
             substitute(&f_dash_of_g, &g, argument) * g_dash
@@ -442,9 +442,9 @@ where
             let inner = evaluate(inner, parameter_value, ctx)?;
             Ok(-inner)
         },
-        Expression::FunctionCall { function, argument } => {
+        Expression::FunctionCall { name, argument } => {
             let argument = evaluate(argument, parameter_value, ctx)?;
-            ctx.evaluate_function(function, argument)
+            ctx.evaluate_function(name, argument)
         },
     }
 }
