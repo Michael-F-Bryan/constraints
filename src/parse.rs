@@ -332,35 +332,31 @@ impl<'a> Tokens<'a> {
         }
     }
 
-    fn chomp_integer(&mut self) -> &'a str {
-        let (text, _) = self.take_while(|c| c.is_ascii_digit()).unwrap();
-        text
-    }
-
     fn chomp_number(&mut self) -> Token<'a> {
-        let start = self.cursor;
-        self.chomp_integer();
+        let mut seen_decimal_point = false;
 
-        if self.peek() == Some('.') {
-            // skip past the decimal
-            self.advance();
+        let (text, span) = self
+            .take_while(|c| match c {
+                '.' if !seen_decimal_point => {
+                    seen_decimal_point = true;
+                    true
+                },
+                '0'..='9' => true,
+                _ => false,
+            })
+            .expect("We know there is at least one digit in the input");
 
-            let digits_to_go =
-                self.peek().map(|c| c.is_ascii_digit()).unwrap_or(false);
-            if digits_to_go {
-                self.chomp_integer();
-            }
+        Token {
+            text,
+            span,
+            kind: TokenKind::Number,
         }
-
-        let end = self.cursor;
-
-        Token::from_text(self.src, start..end, TokenKind::Number)
     }
 
     fn chomp_identifier(&mut self) -> Token<'a> {
         let mut seen_first_character = false;
 
-        let (_, span) = self
+        let (text, span) = self
             .take_while(|c| {
                 if seen_first_character {
                     c.is_alphanumeric() || c == '_'
@@ -371,7 +367,11 @@ impl<'a> Tokens<'a> {
             })
             .expect("We know there should be at least 1 character");
 
-        Token::from_text(self.src, span, TokenKind::Identifier)
+        Token {
+            text,
+            span,
+            kind: TokenKind::Identifier,
+        }
     }
 }
 
@@ -380,11 +380,15 @@ impl<'a> Iterator for Tokens<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            return match self.peek()? {
-                space if space.is_whitespace() => {
-                    self.advance();
-                    continue;
-                },
+            let next_character = self.peek()?;
+
+            if next_character.is_whitespace() {
+                // Skip the whitespace
+                self.advance();
+                continue;
+            }
+
+            return match next_character {
                 '(' => self.chomp(TokenKind::OpenParen),
                 ')' => self.chomp(TokenKind::CloseParen),
                 '+' => self.chomp(TokenKind::Plus),
