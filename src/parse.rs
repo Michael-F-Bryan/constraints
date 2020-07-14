@@ -21,12 +21,12 @@ pub fn parse(s: &str) -> Result<Expression, ParseError> {
 ///                 | term "-" expression
 ///                 | term
 ///
-/// term           := "-" term
-///                 | factor "*" term
+/// term           := factor "*" term
 ///                 | factor "/" term
 ///                 | factor
 ///
-/// factor         := variable_or_function_call
+/// factor         := "-" term
+///                 | variable_or_function_call
 ///                 | "(" expression ")"
 ///                 | NUMBER
 ///
@@ -131,7 +131,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Minus) => {
                 let _ = self.advance()?;
                 let operand = self.factor()?;
-                return Ok(Expression::Negate(Rc::new(operand)));
+                return Ok(-operand);
             },
             Some(TokenKind::Identifier) => {
                 return self.variable_or_function_call()
@@ -413,20 +413,6 @@ struct Token<'a> {
     text: &'a str,
     span: Range<usize>,
     kind: TokenKind,
-}
-
-impl<'a> Token<'a> {
-    fn from_text(
-        original_source: &'a str,
-        span: Range<usize>,
-        kind: TokenKind,
-    ) -> Self {
-        Token {
-            text: &original_source[span.clone()],
-            span,
-            kind,
-        }
-    }
 }
 
 /// The kinds of token that can appear in an [`Expression`]'s text form.
