@@ -376,53 +376,81 @@ mod tests {
     }
 
     macro_rules! solve_test {
-        ($(#[$attr:meta])* $name:ident, $equations:expr => { $( $var_name:ident : $value:expr ),* $(,)? }
+        ($equations:expr => { $( $var_name:ident : $value:expr ),* $(,)? }
         ) => {
+            let equations = SystemOfEquations::from_equations(& $equations).unwrap();
+            let ctx = Builtins::default();
+
+            let got = equations.clone().solve(&ctx).unwrap();
+
+            let mut should_be = HashMap::<Parameter, f64>::new();
+
             $(
-                #[$attr]
+                let p = Parameter::named(stringify!($var_name));
+                should_be.insert(p, $value);
             )*
-            #[test]
-            fn $name() {
-                let equations = SystemOfEquations::from_equations(& $equations).unwrap();
-                let ctx = Builtins::default();
 
-                let got = equations.clone().solve(&ctx).unwrap();
+            assert_eq!(
+                got.known_values.keys().collect::<std::collections::HashSet<_>>(),
+                should_be.keys().collect::<std::collections::HashSet<_>>(),
+                "The keys should match",
+            );
 
-                let mut should_be = HashMap::<Parameter, f64>::new();
+            $(
+                let p = Parameter::named(stringify!($var_name));
+                approx::assert_relative_eq!(got.known_values[&p], should_be[&p]);
+            )*
 
-                $(
-                    let p = Parameter::named(stringify!($var_name));
-                    should_be.insert(p, $value);
-                )*
+            // double-check with the equations to make sure it all adds up
+            for equation in equations {
+                let lookup = |p: &Parameter| got.known_values.get(p).copied();
+                let evaluated = crate::ops::evaluate(&equation.body, &lookup, &ctx).unwrap();
 
-                assert_eq!(
-                    got.known_values.keys().collect::<std::collections::HashSet<_>>(),
-                    should_be.keys().collect::<std::collections::HashSet<_>>(),
-                    "The keys should match",
-                );
-
-                $(
-                    let p = Parameter::named(stringify!($var_name));
-                    approx::assert_relative_eq!(got.known_values[&p], should_be[&p]);
-                )*
-
-                // double-check with the equations to make sure it all adds up
-                for equation in equations {
-                    let lookup = |p: &Parameter| got.known_values.get(p).copied();
-                    let evaluated = crate::ops::evaluate(&equation.body, &lookup, &ctx).unwrap();
-
-                    approx::assert_relative_eq!(evaluated, 0.0);
-                }
+                approx::assert_relative_eq!(evaluated, 0.0);
             }
         };
     }
 
-    solve_test!(x_is_5, ["x = 5"] => { x: 5.0 });
-    solve_test!(unrelated_equations, ["x = 5", "y = -2"] => { x: 5.0, y: -2.0 });
-    solve_test!(difference_of_numbers, ["x + y = 10", "x - y = 0"] => { x: 5.0, y: 5.0 });
-    solve_test!(simple_trig, ["sin(x) = 0"] => { x: 0.0 });
-    solve_test!(sin_x_take_cos_x, ["sin(x) - cos(x + 90) = 0"] => { x: 0.0 });
-    solve_test!(#[ignore] simple_trig_2, ["cos(x) = 1"] => { x: 0.0 });
-    solve_test!(#[ignore] difference_of_numbers_reversed, ["x - y = 0", "x + y = 10"] => { x: 5.0, y: 5.0 });
-    solve_test!(#[ignore] trig_equation_with_no_solution, ["sin(x) * cos(x + 90) = 0.5"] => {x: 0.0});
+    #[test]
+    fn x_is_5() {
+        solve_test!(["x = 5"] => { x: 5.0 });
+    }
+
+    #[test]
+    fn unrelated_equations() {
+        solve_test!(["x = 5", "y = -2"] => { x: 5.0, y: -2.0 });
+    }
+
+    #[test]
+    fn difference_of_numbers() {
+        solve_test!(["x + y = 10", "x - y = 0"] => { x: 5.0, y: 5.0 });
+    }
+
+    #[test]
+    fn simple_trig() {
+        solve_test!(["sin(x) = 0"] => { x: 0.0 });
+    }
+
+    #[test]
+    fn sin_x_take_cos_x() {
+        solve_test!(["sin(x) - cos(x + 90) = 0"] => { x: 0.0 });
+    }
+
+    #[test]
+    #[ignore]
+    fn simple_trig_2() {
+        solve_test!(["cos(x) = 1"] => { x: 0.0 });
+    }
+
+    #[test]
+    #[ignore]
+    fn difference_of_numbers_reversed() {
+        solve_test!(["x - y = 0", "x + y = 10"] => { x: 5.0, y: 5.0 });
+    }
+
+    #[test]
+    #[ignore]
+    fn trig_equation_with_no_solution() {
+        solve_test!(["sin(x) * cos(x + 90) = 0.5"] => {x: 0.0});
+    }
 }
